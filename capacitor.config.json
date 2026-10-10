@@ -1,0 +1,7 @@
+{
+  "appId": "com.tomliam.nutrisnap",
+  "appName": "NutriSnap",
+  "webDir": "www",
+  "backgroundColor": "#f6f7f4",
+  "plugins": { "CapacitorHttp": { "enabled": true } }
+}

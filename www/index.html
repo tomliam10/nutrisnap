@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16a34a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="NutriSnap">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>NutriSnap</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f6f7f4;--card:#fff;--ink:#1c2420;--mute:#6b7770;--line:#e3e7e1;--green:#16a34a;--green-d:#128a3e;
+--cal:#ef6c2f;--pro:#2f7cf0;--carb:#e0a516;--fat:#a855c7;--bad:#dc2626}
+@media(prefers-color-scheme:dark){:root{--bg:#101512;--card:#1a211d;--ink:#eef2ee;--mute:#93a099;--line:#2a332d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;
+padding-bottom:calc(76px + env(safe-area-inset-bottom));padding-top:env(safe-area-inset-top)}
+main{max-width:560px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 14px}h2{font-size:17px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;padding:13px 18px;
+font:600 16px inherit;font-family:inherit;background:var(--green);color:#fff;cursor:pointer;width:100%}
+.btn:active{background:var(--green-d)}.btn.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.sm{width:auto;padding:8px 12px;font-size:14px}.btn[disabled]{opacity:.5}
+.row{display:flex;gap:10px}.row>*{flex:1}
+label{display:block;font-size:13px;color:var(--mute);margin:10px 0 4px}
+input,select,textarea{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;padding:10px;border:0;background:transparent;color:var(--ink);font:inherit;cursor:pointer}
+.seg button.on{background:var(--green);color:#fff}
+#preview{width:100%;max-height:300px;object-fit:cover;border-radius:12px;display:none;margin-bottom:12px}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:30px 16px;text-align:center;color:var(--mute);margin-bottom:12px}
+.drop b{display:block;font-size:34px}
+.macros{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
+.macro{text-align:center;padding:10px 4px;border-radius:12px;background:var(--bg)}
+.macro b{display:block;font-size:20px}.macro small{color:var(--mute);font-size:12px}
+.ing{display:grid;grid-template-columns:1fr 84px;gap:4px 10px;padding:12px 0;border-top:1px solid var(--line);align-items:center}
+.ing .n{font-weight:600}.ing .m{grid-column:1/-1;font-size:13px;color:var(--mute)}
+.ing input{padding:8px;text-align:right}
+.tag{font-size:11px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--mute);margin-left:6px;font-weight:400}
+.mute{color:var(--mute);font-size:14px}.err{color:var(--bad);font-weight:600}
+.spin{width:22px;height:22px;border:3px solid #fff5;border-top-color:#fff;border-radius:50%;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);
+padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;padding:10px 0 8px;border:0;background:none;color:var(--mute);font:600 12px inherit;font-family:inherit;cursor:pointer}
+nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
+.bar{height:12px;border-radius:6px;background:var(--bg);overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--green)}
+.bar.over i{background:var(--bad)}
+.meal{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.meal button{border:0;background:none;color:var(--mute);font-size:18px;cursor:pointer}
+.big{font-size:34px;font-weight:700}
+.view{display:none}.view.on{display:block}
+</style>
+</head>
+<body>
+<main>
+
+<!-- SCAN -->
+<section class="view on" id="v-scan">
+  <h1>📸 Scan your food</h1>
+  <div class="card">
+    <img id="preview" alt="Your meal">
+    <div class="drop" id="drop"><b>🍽️</b>Take a photo of your meal</div>
+    <div class="row">
+      <button class="btn" id="camBtn">📷 Camera</button>
+      <button class="btn sec" id="galBtn">🖼️ Gallery</button>
+    </div>
+    <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
+    <input type="file" id="galIn" accept="image/*" hidden>
+    <label for="note">Optional hint (e.g. "no rice", "dressing on the side")</label>
+    <input id="note" maxlength="200" placeholder="Anything the AI should know?">
+    <div style="height:12px"></div>
+    <button class="btn" id="goBtn" disabled>✨ Analyze with AI</button>
+    <p class="err" id="err"></p>
+  </div>
+
+  <div id="result" style="display:none">
+    <div class="card">
+      <h2 id="dish"></h2>
+      <div class="mute" id="meta"></div>
+      <div class="macros" id="macros"></div>
+      <div class="mute" id="notes"></div>
+    </div>
+    <div class="card">
+      <h2>Ingredients <span class="mute">(edit grams to adjust)</span></h2>
+      <div id="ings"></div>
+    </div>
+    <div class="card">
+      <h2>To burn this meal off</h2>
+      <div id="burnMeal" class="mute">Set up your profile to see this.</div>
+    </div>
+    <button class="btn" id="saveBtn">➕ Add to today's log</button>
+  </div>
+</section>
+
+<!-- LOG -->
+<section class="view" id="v-log">
+  <h1>📒 Today</h1>
+  <div class="card">
+    <div class="mute">Eaten / daily burn</div>
+    <div><span class="big" id="eaten">0</span> <span class="mute" id="tdeeTxt"></span></div>
+    <div class="bar" id="bar"><i style="width:0"></i></div>
+    <div class="macros" id="dayMacros"></div>
+    <div class="mute" id="balance"></div>
+  </div>
+  <div class="card"><h2>Meals</h2><div id="meals" class="mute">Nothing logged yet.</div></div>
+</section>
+
+<!-- PROFILE -->
+<section class="view" id="v-me">
+  <h1>👤 Your profile</h1>
+  <div class="card">
+    <label>Units</label>
+    <div class="seg" id="unitSeg"><button data-u="metric">Metric (kg, cm)</button><button data-u="imperial">Imperial (lb, ft/in)</button></div>
+    <label>Gender</label>
+    <div class="seg" id="sexSeg"><button data-s="male">Male</button><button data-s="female">Female</button></div>
+    <div class="row">
+      <div><label for="age">Age</label><input id="age" type="number" inputmode="numeric" min="10" max="100"></div>
+      <div><label for="wt" id="wtL">Weight</label><input id="wt" type="number" inputmode="decimal" step="0.1"></div>
+    </div>
+    <div class="row" id="htMetric"><div><label for="ht">Height (cm)</label><input id="ht" type="number" inputmode="decimal"></div></div>
+    <div class="row" id="htImp" style="display:none">
+      <div><label for="ft">Height (ft)</label><input id="ft" type="number" inputmode="numeric"></div>
+      <div><label for="inch">(in)</label><input id="inch" type="number" inputmode="decimal"></div>
+    </div>
+    <label for="act">Activity level</label>
+    <select id="act">
+      <option value="1.2">Sedentary (desk job, little exercise)</option>
+      <option value="1.375">Light (exercise 1–3 days/week)</option>
+      <option value="1.55">Moderate (3–5 days/week)</option>
+      <option value="1.725">Very active (6–7 days/week)</option>
+      <option value="1.9">Athlete / physical job</option>
+    </select>
+  </div>
+  <div class="card">
+    <h2>🔑 AI connection</h2>
+    <div class="mute">NutriSnap sends your meal photo to Claude over the internet. Paste your own Anthropic API key (console.anthropic.com). It is stored only on this phone.</div>
+    <label for="key">Anthropic API key</label>
+    <input id="key" type="password" autocomplete="off" autocapitalize="off" placeholder="sk-ant-...">
+  </div>
+  <div class="card">
+    <h2>Calories you burn per day</h2>
+    <div id="burn" class="mute">Fill in your details above.</div>
+  </div>
+  <p class="mute">Estimates only — food photos can't reveal oil, sauces or exact portions, and burn rates vary by person. Not medical advice.</p>
+</section>
+</main>
+
+<nav>
+  <button data-v="scan" class="on"><span>📸</span>Scan</button>
+  <button data-v="log"><span>📒</span>Log</button>
+  <button data-v="me"><span>👤</span>Profile</button>
+</nav>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const r0 = (n) => Math.round(n);
+const r1 = (n) => Math.round(n * 10) / 10;
+
+/* ---------- navigation ---------- */
+document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + b.dataset.v));
+  if (b.dataset.v === 'log') renderLog();
+});
+
+/* ---------- profile & calorie burn ---------- */
+let P = Object.assign({ unit: 'metric', sex: 'male', age: '', wt: '', ht: '', ft: '', inch: '', act: '1.375' }, store.get('profile', {}));
+
+function kgCm() {
+  const imp = P.unit === 'imperial';
+  const kg = imp ? P.wt * 0.45359237 : +P.wt;
+  const cm = imp ? ((+P.ft || 0) * 12 + (+P.inch || 0)) * 2.54 : +P.ht;
+  return { kg, cm };
+}
+function energy() {
+  const { kg, cm } = kgCm();
+  if (!(kg > 20 && cm > 90 && P.age > 9)) return null;
+  // Mifflin-St Jeor
+  const bmr = 10 * kg + 6.25 * cm - 5 * P.age + (P.sex === 'male' ? 5 : -161);
+  return { bmr, tdee: bmr * +P.act, kg, cm, bmi: kg / (cm / 100) ** 2 };
+}
+function renderProfile() {
+  document.querySelectorAll('#unitSeg button').forEach((b) => b.classList.toggle('on', b.dataset.u === P.unit));
+  document.querySelectorAll('#sexSeg button').forEach((b) => b.classList.toggle('on', b.dataset.s === P.sex));
+  const imp = P.unit === 'imperial';
+  $('#wtL').textContent = imp ? 'Weight (lb)' : 'Weight (kg)';
+  $('#htMetric').style.display = imp ? 'none' : 'flex';
+  $('#htImp').style.display = imp ? 'flex' : 'none';
+  for (const k of ['age', 'wt', 'ht', 'ft', 'inch', 'act']) $('#' + k).value = P[k];
+  const e = energy();
+  $('#burn').innerHTML = !e ? 'Fill in your details above.' : `
+    <div class="macros" style="grid-template-columns:1fr 1fr">
+      <div class="macro"><b>${r0(e.bmr)}</b><small>BMR kcal/day<br>(at rest)</small></div>
+      <div class="macro"><b>${r0(e.tdee)}</b><small>Total daily burn<br>(with activity)</small></div>
+    </div>
+    <div class="mute">BMI ${r1(e.bmi)} · Mifflin-St Jeor equation × activity factor.</div>`;
+  renderBurnMeal();
+}
+document.querySelectorAll('#unitSeg button').forEach((b) => b.onclick = () => {
+  const { kg, cm } = kgCm(); // convert existing values
+  const to = b.dataset.u;
+  if (to !== P.unit && kg > 0 && cm > 0) {
+    if (to === 'imperial') { const i = cm / 2.54; P.wt = r1(kg / 0.45359237); P.ft = Math.floor(i / 12); P.inch = r1(i % 12); }
+    else { P.wt = r1(kg); P.ht = r0(cm); }
+  }
+  P.unit = to; save();
+});
+document.querySelectorAll('#sexSeg button').forEach((b) => b.onclick = () => { P.sex = b.dataset.s; save(); });
+for (const k of ['age', 'wt', 'ht', 'ft', 'inch', 'act']) $('#' + k).oninput = (e) => { P[k] = e.target.value; store.set('profile', P); updateDerived(); };
+function save() { store.set('profile', P); renderProfile(); }
+function updateDerived() {
+  const e = energy();
+  $('#burn').innerHTML = !e ? 'Fill in your details above.' : `
+    <div class="macros" style="grid-template-columns:1fr 1fr">
+      <div class="macro"><b>${r0(e.bmr)}</b><small>BMR kcal/day<br>(at rest)</small></div>
+      <div class="macro"><b>${r0(e.tdee)}</b><small>Total daily burn<br>(with activity)</small></div>
+    </div>
+    <div class="mute">BMI ${r1(e.bmi)} · Mifflin-St Jeor equation × activity factor.</div>`;
+  renderBurnMeal();
+}
+
+// minutes of activity to burn `kcal`, using MET values
+const ACTIVITIES = [['🚶 Walking', 3.5], ['🏃 Running', 9.8], ['🚴 Cycling', 7.5], ['🏊 Swimming', 8]];
+function renderBurnMeal() {
+  const el = $('#burnMeal'); if (!el || !meal) return;
+  const e = energy();
+  if (!e) { el.textContent = 'Set up your profile to see this.'; return; }
+  const kcal = totals().calories;
+  el.innerHTML = ACTIVITIES.map(([n, met]) => {
+    const min = kcal / (met * 3.5 * e.kg / 200);
+    return `<div class="meal" style="border-top:0;padding:4px 0"><span>${n}</span><b>${r0(min)} min</b></div>`;
+  }).join('') + `<div class="mute" style="margin-top:6px">This meal is about ${r0(kcal / e.tdee * 100)}% of your daily burn.</div>`;
+}
+
+/* ---------- photo capture ---------- */
+let imgData = null; // {b64, type}
+$('#camBtn').onclick = () => $('#camIn').click();
+$('#galBtn').onclick = () => $('#galIn').click();
+$('#drop').onclick = () => $('#camIn').click();
+for (const id of ['#camIn', '#galIn']) $(id).onchange = (e) => e.target.files[0] && loadImage(e.target.files[0]);
+
+function loadImage(file) {
+  $('#err').textContent = '';
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const max = 1280, s = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const dataUrl = c.toDataURL('image/jpeg', 0.85);
+    imgData = { b64: dataUrl.split(',')[1], type: 'image/jpeg', thumb: thumbOf(c) };
+    $('#preview').src = dataUrl; $('#preview').style.display = 'block'; $('#drop').style.display = 'none';
+    $('#goBtn').disabled = false; $('#result').style.display = 'none'; meal = null;
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => { $('#err').textContent = 'Could not read that image.'; };
+  img.src = url;
+}
+function thumbOf(c) {
+  const t = document.createElement('canvas'); t.width = 96; t.height = 96;
+  const s = Math.max(96 / c.width, 96 / c.height);
+  t.getContext('2d').drawImage(c, (96 - c.width * s) / 2, (96 - c.height * s) / 2, c.width * s, c.height * s);
+  return t.toDataURL('image/jpeg', 0.6);
+}
+
+/* ---------- AI (direct to Anthropic over the internet) ---------- */
+const MODEL = 'claude-sonnet-5-5';
+const SYSTEM = `You are a registered-dietitian-grade food analyst. Given a photo of food or a drink:
+1. Identify the dish (be specific, e.g. "Chicken pad thai", not "noodles").
+2. Dissect it into its individual ingredients, including hidden ones that are very likely present (cooking oil, sauces, dressings, butter, sugar).
+3. Estimate the cooked/served weight in grams of EACH ingredient from visual cues (plate size, utensils, portion depth, typical serving sizes).
+4. For each ingredient give calories (kcal), protein, carbohydrate and fat in grams for that weight, using standard USDA-style nutrition values.
+Be realistic, not optimistic: restaurant portions are usually larger and oilier than home cooking. If the image contains no edible food or drink, set is_food=false and return an empty ingredient list. Always answer by calling the report_meal tool.`;
+const NUM = { type: 'number' };
+const TOOL = { name: 'report_meal', description: 'Report the identified dish and its per-ingredient nutrition estimate.',
+  input_schema: { type: 'object', required: ['is_food', 'dish_name', 'confidence', 'ingredients'], properties: {
+    is_food: { type: 'boolean' }, dish_name: { type: 'string' }, cuisine: { type: 'string' },
+    confidence: { type: 'number', description: '0-1' }, serving_description: { type: 'string' },
+    ingredients: { type: 'array', items: { type: 'object', required: ['name', 'weight_g', 'calories', 'protein_g', 'carbs_g', 'fat_g'],
+      properties: { name: { type: 'string' }, weight_g: NUM, calories: NUM, protein_g: NUM, carbs_g: NUM, fat_g: NUM,
+        visible: { type: 'boolean', description: 'false if inferred rather than seen' } } } },
+    notes: { type: 'string' } } } };
+
+const getKey = () => (store.get('apiKey', '') || '').trim();
+async function askClaude(b64, type, note) {
+  const key = getKey();
+  if (!key) throw new Error('Add your Anthropic API key in the Profile tab first.');
+  let r;
+  try {
+    r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: MODEL, max_tokens: 2500, system: SYSTEM, tools: [TOOL],
+        tool_choice: { type: 'tool', name: 'report_meal' },
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: type, data: b64 } },
+          { type: 'text', text: 'Analyze this meal.' + (note ? ` The user adds: "${note.slice(0, 300)}"` : '') }] }] }),
+    });
+  } catch { throw new Error('No internet connection. Connect and try again.'); }
+  const data = typeof r.json === 'function' ? await r.json().catch(() => ({})) : {};
+  if (!r.ok) {
+    if (r.status === 401) throw new Error('API key rejected. Check it in the Profile tab.');
+    if (r.status === 429) throw new Error('Rate limited — wait a moment and retry.');
+    throw new Error(data?.error?.message || `AI service error (${r.status})`);
+  }
+  const block = (data.content || []).find((b) => b.type === 'tool_use');
+  if (!block) throw new Error('AI returned no analysis. Try another photo.');
+  return block.input;
+}
+
+/* ---------- AI analysis ---------- */
+let meal = null; // {dish_name, ..., ingredients:[{..., base:{per-gram}}]}
+$('#goBtn').onclick = async () => {
+  const btn = $('#goBtn'); $('#err').textContent = '';
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Analyzing…';
+  try {
+    const data = await askClaude(imgData.b64, imgData.type, $('#note').value.trim());
+    if (!data.is_food || !data.ingredients?.length) throw new Error("I couldn't find food in that photo. Try a closer, well-lit shot.");
+    meal = data;
+    for (const i of meal.ingredients) {
+      const w = i.weight_g || 1;
+      i.per = { calories: i.calories / w, protein_g: i.protein_g / w, carbs_g: i.carbs_g / w, fat_g: i.fat_g / w };
+    }
+    renderMeal();
+  } catch (e) { $('#err').textContent = e.message; }
+  btn.disabled = false; btn.textContent = '✨ Analyze with AI';
+};
+
+function totals() {
+  const t = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, weight_g: 0 };
+  for (const i of meal.ingredients) { for (const k of ['calories', 'protein_g', 'carbs_g', 'fat_g']) t[k] += i[k]; t.weight_g += i.weight_g; }
+  return t;
+}
+const macroHtml = (t) => `
+  <div class="macro"><b style="color:var(--cal)">${r0(t.calories)}</b><small>kcal</small></div>
+  <div class="macro"><b style="color:var(--pro)">${r1(t.protein_g)}g</b><small>protein</small></div>
+  <div class="macro"><b style="color:var(--carb)">${r1(t.carbs_g)}g</b><small>carbs</small></div>
+  <div class="macro"><b style="color:var(--fat)">${r1(t.fat_g)}g</b><small>fat</small></div>`;
+
+function renderMeal() {
+  $('#result').style.display = 'block';
+  $('#dish').textContent = meal.dish_name;
+  $('#meta').textContent = [meal.cuisine, meal.serving_description, `${r0(meal.confidence * 100)}% sure`].filter(Boolean).join(' · ');
+  $('#notes').textContent = meal.notes || '';
+  $('#ings').innerHTML = meal.ingredients.map((i, idx) => `
+    <div class="ing">
+      <div class="n">${esc(i.name)}${i.visible === false ? '<span class="tag">inferred</span>' : ''}</div>
+      <div><input type="number" inputmode="decimal" min="0" value="${r0(i.weight_g)}" data-i="${idx}" aria-label="grams"> </div>
+      <div class="m" id="im${idx}">${imMacros(i)}</div>
+    </div>`).join('');
+  document.querySelectorAll('#ings input').forEach((inp) => inp.oninput = () => {
+    const i = meal.ingredients[inp.dataset.i], w = Math.max(0, +inp.value || 0);
+    i.weight_g = w;
+    for (const k of ['calories', 'protein_g', 'carbs_g', 'fat_g']) i[k] = i.per[k] * w;
+    $('#im' + inp.dataset.i).textContent = imMacros(i);
+    $('#macros').innerHTML = macroHtml(totals()); renderBurnMeal();
+  });
+  $('#macros').innerHTML = macroHtml(totals());
+  renderBurnMeal();
+  $('#result').scrollIntoView({ behavior: 'smooth' });
+}
+const imMacros = (i) => `${r0(i.weight_g)} g · ${r0(i.calories)} kcal · P ${r1(i.protein_g)} · C ${r1(i.carbs_g)} · F ${r1(i.fat_g)}`;
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* ---------- daily log ---------- */
+const today = () => new Date().toLocaleDateString('en-CA');
+let LOG = store.get('log', {});
+$('#saveBtn').onclick = () => {
+  const t = totals();
+  (LOG[today()] ||= []).push({ id: Date.now(), name: meal.dish_name, thumb: imgData?.thumb, ...t });
+  store.set('log', LOG);
+  $('#saveBtn').textContent = '✅ Added!';
+  setTimeout(() => ($('#saveBtn').textContent = "➕ Add to today's log"), 1500);
+};
+function renderLog() {
+  const items = LOG[today()] || [];
+  const t = items.reduce((a, m) => { for (const k of ['calories', 'protein_g', 'carbs_g', 'fat_g']) a[k] += m[k]; return a; }, { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
+  const e = energy();
+  $('#eaten').textContent = r0(t.calories) + ' kcal';
+  $('#tdeeTxt').textContent = e ? `/ ${r0(e.tdee)} burned` : '(add profile for burn)';
+  const bar = $('#bar'); bar.classList.toggle('over', !!e && t.calories > e.tdee);
+  bar.firstElementChild.style.width = e ? Math.min(100, t.calories / e.tdee * 100) + '%' : '0';
+  $('#dayMacros').innerHTML = macroHtml(t);
+  $('#balance').textContent = !e ? '' : t.calories > e.tdee
+    ? `Surplus of ${r0(t.calories - e.tdee)} kcal vs. your daily burn.`
+    : `Deficit of ${r0(e.tdee - t.calories)} kcal vs. your daily burn.`;
+  $('#meals').innerHTML = items.length ? items.map((m) => `
+    <div class="meal"><div style="display:flex;gap:10px;align-items:center">
+      ${m.thumb ? `<img src="${m.thumb}" width="44" height="44" style="border-radius:8px;object-fit:cover">` : ''}
+      <div><b>${esc(m.name)}</b><div class="mute">${r0(m.calories)} kcal · ${r0(m.weight_g)} g<br>P ${r1(m.protein_g)} · C ${r1(m.carbs_g)} · F ${r1(m.fat_g)}</div></div></div>
+      <button data-id="${m.id}" aria-label="Delete">🗑️</button></div>`).join('') : 'Nothing logged yet.';
+  document.querySelectorAll('#meals button').forEach((b) => b.onclick = () => {
+    LOG[today()] = items.filter((m) => m.id != b.dataset.id); store.set('log', LOG); renderLog();
+  });
+}
+
+$('#key').value = getKey();
+$('#key').oninput = (e) => store.set('apiKey', e.target.value.trim());
+renderProfile();
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
