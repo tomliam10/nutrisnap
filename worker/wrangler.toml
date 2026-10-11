@@ -13,6 +13,6 @@ GLOBAL_DAILY_LIMIT = "300"          # scans per day across everyone (protects yo
 
 # After running: npx wrangler kv namespace create LIMITS
 # paste the printed id below and remove the leading '#'
-# [[kv_namespaces]]
-# binding = "LIMITS"
-# id = "PASTE_ID_HERE"
+[[kv_namespaces]]
+binding = "LIMITS"
+id = "0780e04153fe4831b90227f195969c01"
