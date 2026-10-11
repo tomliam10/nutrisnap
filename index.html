@@ -76,6 +76,7 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <input id="note" maxlength="200" placeholder="Anything the AI should know?">
     <div style="height:12px"></div>
     <button class="btn" id="goBtn" disabled>✨ Analyze with AI</button>
+    <p class="mute" id="quota" style="text-align:center;margin:10px 0 0"></p>
     <p class="err" id="err"></p>
   </div>
 
@@ -100,7 +101,12 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
 
 <!-- LOG -->
 <section class="view" id="v-log">
-  <h1>📒 Today</h1>
+  <h1>📒 Log</h1>
+  <div class="card" style="display:flex;align-items:center;gap:10px">
+    <button class="btn sec sm" id="dPrev" aria-label="Previous day">◀</button>
+    <div style="flex:1;text-align:center"><b id="dLabel">Today</b><div class="mute" id="dSub"></div></div>
+    <button class="btn sec sm" id="dNext" aria-label="Next day">▶</button>
+  </div>
   <div class="card">
     <div class="mute">Eaten / daily burn</div>
     <div><span class="big" id="eaten">0</span> <span class="mute" id="tdeeTxt"></span></div>
@@ -109,6 +115,7 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <div class="mute" id="balance"></div>
   </div>
   <div class="card"><h2>Meals</h2><div id="meals" class="mute">Nothing logged yet.</div></div>
+  <div class="card"><h2>Past days</h2><div id="history" class="mute">No history yet.</div></div>
 </section>
 
 <!-- PROFILE -->
@@ -146,6 +153,18 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
   <div class="card">
     <h2>Calories you burn per day</h2>
     <div id="burn" class="mute">Fill in your details above.</div>
+  </div>
+  <div class="card">
+    <h2>💾 Your data</h2>
+    <div class="mute">Everything is stored on this phone only. Back it up before deleting the app or switching phones.</div>
+    <div style="height:10px"></div>
+    <button class="btn sec" id="expCsv">📄 Export meal history (CSV)</button>
+    <div style="height:8px"></div>
+    <button class="btn sec" id="expJson">💾 Back up everything (JSON)</button>
+    <div style="height:8px"></div>
+    <button class="btn sec" id="impBtn">♻️ Restore from backup</button>
+    <input type="file" id="impIn" accept="application/json,.json" hidden>
+    <p class="mute" id="dataMsg" style="margin:10px 0 0"></p>
   </div>
   <p class="mute">Estimates only — food photos can't reveal oil, sauces or exact portions, and burn rates vary by person. Not medical advice.</p>
 </section>
@@ -293,6 +312,15 @@ const TOOL = { name: 'report_meal', description: 'Report the identified dish and
     notes: { type: 'string' } } } };
 
 // Set this to your deployed Cloudflare Worker address (no trailing slash). Empty = use the "own key" mode below.
+// Free scans per device per day. Keep in step with DEVICE_DAILY_LIMIT in worker/wrangler.toml.
+const FREE_LIMIT = 8;
+function renderQuota() {
+  const q = store.get('quota', null), el = $('#quota'); if (!el) return;
+  const n = q && q.date === today() ? q.left : null;
+  el.textContent = n === null ? `Free plan: up to ${q?.limit || FREE_LIMIT} scans per day.`
+    : n > 0 ? `${n} of ${q.limit} free scans left today.` : `You've used all ${q.limit} free scans today. Come back tomorrow!`;
+}
+function setQuota(q) { if (q && typeof q.left === 'number') { store.set('quota', { date: today(), left: q.left, limit: q.limit }); renderQuota(); } }
 const BACKEND_URL = 'https://nutrisnap-api.tom-liam.workers.dev';
 const deviceId = (() => { let d = store.get('deviceId', ''); if (!d) { d = (crypto.randomUUID?.() || String(Math.random()).slice(2) + Date.now()); store.set('deviceId', d); } return d; })();
 async function askBackend(b64, type, note) {
@@ -303,7 +331,9 @@ async function askBackend(b64, type, note) {
       body: JSON.stringify({ image: b64, mediaType: type, note }) });
   } catch { throw new Error('No internet connection. Connect and try again.'); }
   const data = await r.json().catch(() => ({}));
+  setQuota(data.quota);
   if (!r.ok) throw new Error(data.error || `Service error (${r.status})`);
+  delete data.quota;
   return data;
 }
 const getKey = () => (store.get('apiKey', '') || '').trim();
@@ -398,32 +428,96 @@ $('#saveBtn').onclick = () => {
   $('#saveBtn').textContent = '✅ Added!';
   setTimeout(() => ($('#saveBtn').textContent = "➕ Add to today's log"), 1500);
 };
+let viewDate = today();
+const shiftDay = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toLocaleDateString('en-CA'); };
+const prettyDay = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+const sumMeals = (items) => items.reduce((a, m) => { for (const k of ['calories', 'protein_g', 'carbs_g', 'fat_g']) a[k] += m[k]; return a; }, { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
+$('#dPrev').onclick = () => { viewDate = shiftDay(viewDate, -1); renderLog(); };
+$('#dNext').onclick = () => { if (viewDate < today()) { viewDate = shiftDay(viewDate, 1); renderLog(); } };
 function renderLog() {
-  const items = LOG[today()] || [];
-  const t = items.reduce((a, m) => { for (const k of ['calories', 'protein_g', 'carbs_g', 'fat_g']) a[k] += m[k]; return a; }, { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
+  if (viewDate > today()) viewDate = today();
+  const items = LOG[viewDate] || [];
+  const isToday = viewDate === today();
+  $('#dLabel').textContent = isToday ? 'Today' : viewDate === shiftDay(today(), -1) ? 'Yesterday' : prettyDay(viewDate);
+  $('#dSub').textContent = isToday || viewDate === shiftDay(today(), -1) ? prettyDay(viewDate) : '';
+  $('#dNext').disabled = isToday;
+  const t = sumMeals(items);
   const e = energy();
   $('#eaten').textContent = r0(t.calories) + ' kcal';
   $('#tdeeTxt').textContent = e ? `/ ${r0(e.tdee)} burned` : '(add profile for burn)';
   const bar = $('#bar'); bar.classList.toggle('over', !!e && t.calories > e.tdee);
   bar.firstElementChild.style.width = e ? Math.min(100, t.calories / e.tdee * 100) + '%' : '0';
   $('#dayMacros').innerHTML = macroHtml(t);
-  $('#balance').textContent = !e ? '' : t.calories > e.tdee
+  $('#balance').textContent = !e || !items.length ? '' : t.calories > e.tdee
     ? `Surplus of ${r0(t.calories - e.tdee)} kcal vs. your daily burn.`
     : `Deficit of ${r0(e.tdee - t.calories)} kcal vs. your daily burn.`;
   $('#meals').innerHTML = items.length ? items.map((m) => `
     <div class="meal"><div style="display:flex;gap:10px;align-items:center">
       ${m.thumb ? `<img src="${m.thumb}" width="44" height="44" style="border-radius:8px;object-fit:cover">` : ''}
       <div><b>${esc(m.name)}</b><div class="mute">${r0(m.calories)} kcal · ${r0(m.weight_g)} g<br>P ${r1(m.protein_g)} · C ${r1(m.carbs_g)} · F ${r1(m.fat_g)}</div></div></div>
-      <button data-id="${m.id}" aria-label="Delete">🗑️</button></div>`).join('') : 'Nothing logged yet.';
+      <button data-id="${m.id}" aria-label="Delete">🗑️</button></div>`).join('') : 'Nothing logged this day.';
   document.querySelectorAll('#meals button').forEach((b) => b.onclick = () => {
-    LOG[today()] = items.filter((m) => m.id != b.dataset.id); store.set('log', LOG); renderLog();
+    LOG[viewDate] = items.filter((m) => m.id != b.dataset.id);
+    if (!LOG[viewDate].length) delete LOG[viewDate];
+    store.set('log', LOG); renderLog();
   });
+  const days = Object.keys(LOG).filter((d) => LOG[d].length).sort().reverse().slice(0, 60);
+  $('#history').innerHTML = days.length ? days.map((d) => {
+    const dt = sumMeals(LOG[d]);
+    return `<div class="meal" data-d="${d}" style="cursor:pointer${d === viewDate ? ';font-weight:700' : ''}"><div>${d === today() ? 'Today' : prettyDay(d)}<div class="mute">${LOG[d].length} meal${LOG[d].length > 1 ? 's' : ''} · P ${r0(dt.protein_g)} · C ${r0(dt.carbs_g)} · F ${r0(dt.fat_g)}</div></div><b>${r0(dt.calories)} kcal</b></div>`;
+  }).join('') : 'No history yet.';
+  document.querySelectorAll('#history .meal').forEach((el) => el.onclick = () => { viewDate = el.dataset.d; renderLog(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
 }
+
+/* ---------- export / backup / restore ---------- */
+async function saveFile(name, mime, text) {
+  const file = new File([text], name, { type: mime });
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return true; }
+    catch (e) { if (e.name === 'AbortError') return false; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return true;
+}
+const dataMsg = (t, bad) => { const el = $('#dataMsg'); el.textContent = t; el.className = bad ? 'err' : 'mute'; el.style.margin = '10px 0 0'; };
+$('#expCsv').onclick = async () => {
+  const days = Object.keys(LOG).sort();
+  if (!days.some((d) => LOG[d].length)) return dataMsg('Nothing to export yet — log a meal first.', true);
+  const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const rows = [['date', 'meal', 'calories_kcal', 'protein_g', 'carbs_g', 'fat_g', 'weight_g'].join(',')];
+  for (const d of days) for (const m of LOG[d]) rows.push([d, q(m.name), r0(m.calories), r1(m.protein_g), r1(m.carbs_g), r1(m.fat_g), r0(m.weight_g)].join(','));
+  if (await saveFile(`nutrisnap-history-${today()}.csv`, 'text/csv', rows.join('\n'))) dataMsg('Exported ' + (rows.length - 1) + ' meals.');
+};
+$('#expJson').onclick = async () => {
+  const backup = { app: 'nutrisnap', version: 1, exported: new Date().toISOString(), profile: P, log: LOG };
+  if (await saveFile(`nutrisnap-backup-${today()}.json`, 'application/json', JSON.stringify(backup))) dataMsg('Backup saved. Keep the file somewhere safe (Files, iCloud, email to yourself).');
+};
+$('#impBtn').onclick = () => $('#impIn').click();
+$('#impIn').onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const b = JSON.parse(await f.text());
+    if (b.app !== 'nutrisnap' || typeof b.log !== 'object' || b.log === null) throw new Error('bad');
+    if (!confirm('Restore this backup? Meals are merged with what you have now, and your profile is replaced by the backup\'s.')) return;
+    let added = 0;
+    for (const [d, list] of Object.entries(b.log)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(list)) continue;
+      const have = new Set((LOG[d] ||= []).map((m) => m.id));
+      for (const m of list) if (m && typeof m.calories === 'number' && !have.has(m.id)) { LOG[d].push(m); added++; }
+      if (!LOG[d].length) delete LOG[d];
+    }
+    store.set('log', LOG);
+    if (b.profile && typeof b.profile === 'object') { P = Object.assign(P, b.profile); store.set('profile', P); renderProfile(); }
+    renderLog(); dataMsg(`Restored. ${added} meal${added === 1 ? '' : 's'} added.`);
+  } catch { dataMsg("That file isn't a NutriSnap backup.", true); }
+};
 
 if (BACKEND_URL) $('#advCard').style.display = 'none';
 $('#key').value = getKey();
 $('#key').oninput = (e) => store.set('apiKey', e.target.value.trim());
 renderProfile();
+renderQuota();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
