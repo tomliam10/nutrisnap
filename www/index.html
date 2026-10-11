@@ -293,7 +293,7 @@ const TOOL = { name: 'report_meal', description: 'Report the identified dish and
     notes: { type: 'string' } } } };
 
 // Set this to your deployed Cloudflare Worker address (no trailing slash). Empty = use the "own key" mode below.
-const BACKEND_URL = '';
+const BACKEND_URL = 'https://nutrisnap-api.tom-liam.workers.dev';
 const deviceId = (() => { let d = store.get('deviceId', ''); if (!d) { d = (crypto.randomUUID?.() || String(Math.random()).slice(2) + Date.now()); store.set('deviceId', d); } return d; })();
 async function askBackend(b64, type, note) {
   let r;

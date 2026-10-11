@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 
 [vars]
 PROVIDER = "gemini"                 # "gemini" or "claude"
-GEMINI_MODEL = "gemini-2.5-flash"   # change here if Google retires this model
+GEMINI_MODEL = "gemini-3.8-flash"   # change here if Google retires this model
 CLAUDE_MODEL = "claude-sonnet-5-5"
 ALLOWED_ORIGINS = "https://tomliam10.github.io,capacitor://localhost,http://localhost,https://localhost"
 DEVICE_DAILY_LIMIT = "8"            # scans per device per day
