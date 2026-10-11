@@ -137,12 +137,12 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
       <option value="1.9">Athlete / physical job</option>
     </select>
   </div>
-  <div class="card">
-    <h2>🔑 AI connection</h2>
-    <div class="mute">NutriSnap sends your meal photo to Claude over the internet. Paste your own Anthropic API key (console.anthropic.com). It is stored only on this phone.</div>
+  <details class="card" id="advCard">
+    <summary><b>Advanced: use my own AI key</b></summary>
+    <div class="mute" style="margin-top:8px">Only needed if the app has no built-in AI service. Paste your own Anthropic API key. It is stored only on this phone.</div>
     <label for="key">Anthropic API key</label>
     <input id="key" type="password" autocomplete="off" autocapitalize="off" placeholder="sk-ant-...">
-  </div>
+  </details>
   <div class="card">
     <h2>Calories you burn per day</h2>
     <div id="burn" class="mute">Fill in your details above.</div>
@@ -292,6 +292,20 @@ const TOOL = { name: 'report_meal', description: 'Report the identified dish and
         visible: { type: 'boolean', description: 'false if inferred rather than seen' } } } },
     notes: { type: 'string' } } } };
 
+// Set this to your deployed Cloudflare Worker address (no trailing slash). Empty = use the "own key" mode below.
+const BACKEND_URL = '';
+const deviceId = (() => { let d = store.get('deviceId', ''); if (!d) { d = (crypto.randomUUID?.() || String(Math.random()).slice(2) + Date.now()); store.set('deviceId', d); } return d; })();
+async function askBackend(b64, type, note) {
+  let r;
+  try {
+    r = await fetch(BACKEND_URL + '/analyze', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-device-id': deviceId },
+      body: JSON.stringify({ image: b64, mediaType: type, note }) });
+  } catch { throw new Error('No internet connection. Connect and try again.'); }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `Service error (${r.status})`);
+  return data;
+}
 const getKey = () => (store.get('apiKey', '') || '').trim();
 async function askClaude(b64, type, note) {
   const key = getKey();
@@ -326,7 +340,7 @@ $('#goBtn').onclick = async () => {
   const btn = $('#goBtn'); $('#err').textContent = '';
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Analyzing…';
   try {
-    const data = await askClaude(imgData.b64, imgData.type, $('#note').value.trim());
+    const data = await (BACKEND_URL ? askBackend : askClaude)(imgData.b64, imgData.type, $('#note').value.trim());
     if (!data.is_food || !data.ingredients?.length) throw new Error("I couldn't find food in that photo. Try a closer, well-lit shot.");
     meal = data;
     for (const i of meal.ingredients) {
@@ -406,6 +420,7 @@ function renderLog() {
   });
 }
 
+if (BACKEND_URL) $('#advCard').style.display = 'none';
 $('#key').value = getKey();
 $('#key').oninput = (e) => store.set('apiKey', e.target.value.trim());
 renderProfile();
