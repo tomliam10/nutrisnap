@@ -47,6 +47,7 @@ export default {
     const device = (req.headers.get('x-device-id') || 'none').slice(0, 64);
     const ip = req.headers.get('cf-connecting-ip') || 'unknown';
     let refund = async () => {};
+    let quota = null;
     if (env.LIMITS) {
       const checks = [
         [`d:${device}:${day}`, +env.DEVICE_DAILY_LIMIT, 'You have used all of today\'s free scans. Come back tomorrow!'],
@@ -54,8 +55,9 @@ export default {
         [`g:${day}`, +env.GLOBAL_DAILY_LIMIT, 'NutriSnap is at capacity for today. Please try again tomorrow.'],
       ];
       const counts = await Promise.all(checks.map(([k]) => env.LIMITS.get(k)));
-      for (let i = 0; i < checks.length; i++) if ((+counts[i] || 0) >= checks[i][1]) return json({ error: checks[i][2] }, 429);
+      for (let i = 0; i < checks.length; i++) if ((+counts[i] || 0) >= checks[i][1]) return json({ error: checks[i][2], quota: { left: 0, limit: +env.DEVICE_DAILY_LIMIT } }, 429);
       await Promise.all(checks.map(([k], i) => env.LIMITS.put(k, String((+counts[i] || 0) + 1), { expirationTtl: 172800 })));
+      quota = { left: Math.max(0, +env.DEVICE_DAILY_LIMIT - ((+counts[0] || 0) + 1)), limit: +env.DEVICE_DAILY_LIMIT };
       // a failed scan should not use up someone's daily allowance
       refund = () => Promise.all(checks.map(([k], i) => env.LIMITS.put(k, String(+counts[i] || 0), { expirationTtl: 172800 }))).catch(() => {});
     }
@@ -63,11 +65,11 @@ export default {
     const userText = 'Analyze this meal.' + (note ? ` The user adds: "${String(note).slice(0, 300)}"` : '');
     const ask = env.PROVIDER === 'claude' ? askClaude : askGemini;
     for (let attempt = 1; attempt <= 2; attempt++) {
-      try { return json(await ask(env, image, mediaType, userText)); }
+      try { return json({ ...(await ask(env, image, mediaType, userText)), quota }); }
       catch (e) { console.error(`attempt ${attempt}: ${e.message}`); }
     }
     await refund();
-    return json({ error: 'The AI service is busy right now. Please try again in a moment.' }, 502);
+    return json({ error: 'The AI service is busy right now. Please try again in a moment.', quota: quota && { left: quota.left + 1, limit: quota.limit } }, 502);
   },
 };
 
