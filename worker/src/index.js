@@ -46,6 +46,7 @@ export default {
     const day = new Date().toISOString().slice(0, 10);
     const device = (req.headers.get('x-device-id') || 'none').slice(0, 64);
     const ip = req.headers.get('cf-connecting-ip') || 'unknown';
+    let refund = async () => {};
     if (env.LIMITS) {
       const checks = [
         [`d:${device}:${day}`, +env.DEVICE_DAILY_LIMIT, 'You have used all of today\'s free scans. Come back tomorrow!'],
@@ -55,23 +56,25 @@ export default {
       const counts = await Promise.all(checks.map(([k]) => env.LIMITS.get(k)));
       for (let i = 0; i < checks.length; i++) if ((+counts[i] || 0) >= checks[i][1]) return json({ error: checks[i][2] }, 429);
       await Promise.all(checks.map(([k], i) => env.LIMITS.put(k, String((+counts[i] || 0) + 1), { expirationTtl: 172800 })));
+      // a failed scan should not use up someone's daily allowance
+      refund = () => Promise.all(checks.map(([k], i) => env.LIMITS.put(k, String(+counts[i] || 0), { expirationTtl: 172800 }))).catch(() => {});
     }
 
     const userText = 'Analyze this meal.' + (note ? ` The user adds: "${String(note).slice(0, 300)}"` : '');
-    try {
-      const result = env.PROVIDER === 'claude' ? await askClaude(env, image, mediaType, userText) : await askGemini(env, image, mediaType, userText);
-      return json(result);
-    } catch (e) {
-      console.error(e.message);
-      return json({ error: 'The AI service had a problem. Please try again.' }, 502);
+    const ask = env.PROVIDER === 'claude' ? askClaude : askGemini;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try { return json(await ask(env, image, mediaType, userText)); }
+      catch (e) { console.error(`attempt ${attempt}: ${e.message}`); }
     }
+    await refund();
+    return json({ error: 'The AI service is busy right now. Please try again in a moment.' }, 502);
   },
 };
 
 async function askGemini(env, image, mediaType, text) {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`, {
-    method: 'POST',
+    method: 'POST', signal: AbortSignal.timeout(20000),
     headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM }] },
@@ -90,7 +93,7 @@ async function askGemini(env, image, mediaType, text) {
 async function askClaude(env, image, mediaType, text) {
   if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
+    method: 'POST', signal: AbortSignal.timeout(25000),
     headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: env.CLAUDE_MODEL, max_tokens: 2500, system: SYSTEM,
