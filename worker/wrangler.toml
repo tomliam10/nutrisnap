@@ -8,7 +8,7 @@ GEMINI_MODEL = "gemini-3.8-flash"
 GEMINI_MODELS = "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-2.5-flash-lite,gemini-3.8-flash"   # tried in order; if one is out of quota or retired the next is used
 CLAUDE_MODEL = "claude-sonnet-5-5"
 ALLOWED_ORIGINS = "https://tomliam10.github.io,capacitor://localhost,http://localhost,https://localhost"
-DEVICE_DAILY_LIMIT = "15"            # scans per device per day
+DEVICE_DAILY_LIMIT = "10"            # scans per device per day
 IP_DAILY_LIMIT = "40"               # scans per network address per day
 GLOBAL_DAILY_LIMIT = "300"          # scans per day across everyone (protects your bill)
 
