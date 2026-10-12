@@ -313,7 +313,7 @@ const TOOL = { name: 'report_meal', description: 'Report the identified dish and
 
 // Set this to your deployed Cloudflare Worker address (no trailing slash). Empty = use the "own key" mode below.
 // Free scans per device per day. Keep in step with DEVICE_DAILY_LIMIT in worker/wrangler.toml.
-const FREE_LIMIT = 8;
+const FREE_LIMIT = 15;
 function renderQuota() {
   const q = store.get('quota', null), el = $('#quota'); if (!el) return;
   const n = q && q.date === today() ? q.left : null;
