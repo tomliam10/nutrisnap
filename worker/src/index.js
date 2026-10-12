@@ -34,7 +34,8 @@ export default {
     const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { ...cors, 'content-type': 'application/json' } });
 
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
-    if (req.method !== 'POST' || new URL(req.url).pathname !== '/analyze') return json({ error: 'Not found' }, 404);
+    const path = new URL(req.url).pathname;
+    if (req.method !== 'POST' || path !== '/analyze') return json({ error: 'Not found' }, 404);
     if (!allowed.includes(origin)) return json({ error: 'Origin not allowed' }, 403);
 
     let body;
@@ -63,19 +64,31 @@ export default {
     }
 
     const userText = 'Analyze this meal.' + (note ? ` The user adds: "${String(note).slice(0, 300)}"` : '');
+    const models = env.PROVIDER === 'claude' ? [env.CLAUDE_MODEL]
+      : (env.GEMINI_MODELS || env.GEMINI_MODEL).split(',').map((m) => m.trim()).filter(Boolean);
     const ask = env.PROVIDER === 'claude' ? askClaude : askGemini;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try { return json({ ...(await ask(env, image, mediaType, userText)), quota }); }
-      catch (e) { console.error(`attempt ${attempt}: ${e.message}`); }
+    let detail = '', quotaHits = 0;
+    for (const model of models) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try { return json({ ...(await ask(env, model, image, mediaType, userText)), quota }); }
+        catch (e) {
+          detail = `${model} -> ${e?.name || 'Error'}: ${e?.message || String(e)}`.slice(0, 300);
+          console.error(`attempt ${attempt} failed: ${detail}`);
+          if (e?.status === 429) { quotaHits++; break; }  // out of quota: no point retrying this model
+          if (e?.status === 404) break;                    // model retired: try the next one
+        }
+      }
     }
     await refund();
-    return json({ error: 'The AI service is busy right now. Please try again in a moment.', quota: quota && { left: quota.left + 1, limit: quota.limit } }, 502);
+    const out = quota && { left: quota.left + 1, limit: quota.limit };
+    if (quotaHits === models.length) return json({ error: "NutriSnap's free AI capacity is used up for today. Please try again tomorrow.", detail, quota: out }, 503);
+    return json({ error: 'The AI service is busy right now. Please try again in a moment.', detail, quota: out }, 502);
   },
 };
 
-async function askGemini(env, image, mediaType, text) {
+async function askGemini(env, model, image, mediaType, text) {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`, {
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST', signal: AbortSignal.timeout(20000),
     headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
     body: JSON.stringify({
@@ -86,26 +99,26 @@ async function askGemini(env, image, mediaType, text) {
     }),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`Gemini ${r.status}: ${data?.error?.message || ''}`);
+  if (!r.ok) throw Object.assign(new Error(`Gemini HTTP ${r.status}: ${data?.error?.message || JSON.stringify(data).slice(0, 200)}`), { status: r.status });
   const out = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('');
   if (!out) throw new Error('Gemini returned no content');
   return JSON.parse(out);
 }
 
-async function askClaude(env, image, mediaType, text) {
+async function askClaude(env, model, image, mediaType, text) {
   if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', signal: AbortSignal.timeout(25000),
     headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: env.CLAUDE_MODEL, max_tokens: 2500, system: SYSTEM,
+      model, max_tokens: 2500, system: SYSTEM,
       tools: [{ name: 'report_meal', description: 'Report the meal analysis.', input_schema: { type: 'object', required: REQUIRED, properties: PROPS } }],
       tool_choice: { type: 'tool', name: 'report_meal' },
       messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: image } }, { type: 'text', text }] }],
     }),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`Claude ${r.status}: ${data?.error?.message || ''}`);
+  if (!r.ok) throw Object.assign(new Error(`Claude ${r.status}: ${data?.error?.message || ''}`), { status: r.status });
   const block = (data.content || []).find((b) => b.type === 'tool_use');
   if (!block) throw new Error('Claude returned no tool call');
   return block.input;
