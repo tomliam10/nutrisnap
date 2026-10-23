@@ -1,5 +1,5 @@
 // NutriSnap API: holds the AI key, applies usage limits, forwards the photo to Gemini or Claude.
-const SYSTEM = `You are a registered-dietitian-grade food analyst. Given a photo of food or a drink:
+const SYSTEM = `You are a registered-dietitian-grade food analyst. Given a photo of food or a drink, or a text description of what someone ate:
 1. Identify the dish (be specific, e.g. "Chicken pad thai", not "noodles").
 2. Dissect it into its individual ingredients, including hidden ones that are very likely present (cooking oil, sauces, dressings, butter, sugar).
 3. Estimate the cooked/served weight in grams of EACH ingredient from visual cues (plate size, utensils, portion depth, typical serving sizes).
@@ -41,7 +41,11 @@ export default {
     let body;
     try { body = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }
     const { image, mediaType, note } = body || {};
-    if (typeof image !== 'string' || image.length > MAX_B64 || !TYPES.has(mediaType)) return json({ error: 'Send a JPEG/PNG/WebP photo under 5 MB.' }, 400);
+    const hasImage = image !== undefined && image !== null;
+    const text = typeof note === 'string' ? note.trim().slice(0, 400) : '';
+    if (hasImage ? (typeof image !== 'string' || image.length > MAX_B64 || !TYPES.has(mediaType)) : text.length < 3) {
+      return json({ error: hasImage ? 'Send a JPEG/PNG/WebP photo under 5 MB.' : 'Take a photo or describe what you ate.' }, 400);
+    }
 
     // ---- usage limits (KV counters per day) ----
     const day = new Date().toISOString().slice(0, 10);
@@ -63,14 +67,16 @@ export default {
       refund = () => Promise.all(checks.map(([k], i) => env.LIMITS.put(k, String(+counts[i] || 0), { expirationTtl: 172800 }))).catch(() => {});
     }
 
-    const userText = 'Analyze this meal.' + (note ? ` The user adds: "${String(note).slice(0, 300)}"` : '');
+    const userText = hasImage
+      ? 'Analyze this meal.' + (text ? ` The user adds: "${text}"` : '')
+      : `There is no photo. Estimate the nutrition of this meal as described by the user: "${text}". Use typical portion sizes where the amount is not stated, list each ingredient (including cooking oil or butter if likely), and state your portion assumptions in notes. Set is_food=false only if this is not something edible.`;
     const models = env.PROVIDER === 'claude' ? [env.CLAUDE_MODEL]
       : (env.GEMINI_MODELS || env.GEMINI_MODEL).split(',').map((m) => m.trim()).filter(Boolean);
     const ask = env.PROVIDER === 'claude' ? askClaude : askGemini;
     let detail = '', quotaHits = 0;
     for (const model of models) {
       for (let attempt = 1; attempt <= 2; attempt++) {
-        try { return json({ ...(await ask(env, model, image, mediaType, userText)), quota }); }
+        try { return json({ ...(await ask(env, model, hasImage ? image : null, mediaType, userText)), quota }); }
         catch (e) {
           detail = `${model} -> ${e?.name || 'Error'}: ${e?.message || String(e)}`.slice(0, 300);
           console.error(`attempt ${attempt} failed: ${detail}`);
@@ -93,7 +99,7 @@ async function askGemini(env, model, image, mediaType, text) {
     headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM }] },
-      contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mediaType, data: image } }, { text }] }],
+      contents: [{ role: 'user', parts: [...(image ? [{ inline_data: { mime_type: mediaType, data: image } }] : []), { text }] }],
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json',
         responseSchema: upper({ type: 'object', required: REQUIRED, properties: PROPS }) },
     }),
@@ -114,7 +120,7 @@ async function askClaude(env, model, image, mediaType, text) {
       model, max_tokens: 2500, system: SYSTEM,
       tools: [{ name: 'report_meal', description: 'Report the meal analysis.', input_schema: { type: 'object', required: REQUIRED, properties: PROPS } }],
       tool_choice: { type: 'tool', name: 'report_meal' },
-      messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: image } }, { type: 'text', text }] }],
+      messages: [{ role: 'user', content: [...(image ? [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: image } }] : []), { type: 'text', text }] }],
     }),
   });
   const data = await r.json().catch(() => ({}));
