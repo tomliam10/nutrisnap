@@ -65,15 +65,16 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
   <h1>📸 Scan your food</h1>
   <div class="card">
     <img id="preview" alt="Your meal">
-    <div class="drop" id="drop"><b>🍽️</b>Take a photo of your meal</div>
+    <button class="btn sec sm" id="rmPhoto" style="display:none;margin-bottom:12px">✖ Remove photo (describe it instead)</button>
+    <div class="drop" id="drop"><b>🍽️</b>Take a photo of your meal<div class="mute" style="margin-top:4px">or just describe it below</div></div>
     <div class="row">
       <button class="btn" id="camBtn">📷 Camera</button>
       <button class="btn sec" id="galBtn">🖼️ Gallery</button>
     </div>
     <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
     <input type="file" id="galIn" accept="image/*" hidden>
-    <label for="note">Optional hint (e.g. "no rice", "dressing on the side")</label>
-    <input id="note" maxlength="200" placeholder="Anything the AI should know?">
+    <label for="note"><b style="color:var(--ink)">Describe your meal</b> — no photo needed, or add a hint to your photo</label>
+    <textarea id="note" rows="3" maxlength="400" style="resize:vertical" placeholder='No photo? Type it, e.g. "2 boiled eggs and toast with butter"'></textarea>
     <div style="height:12px"></div>
     <button class="btn" id="goBtn" disabled>✨ Analyze with AI</button>
     <p class="mute" id="quota" style="text-align:center;margin:10px 0 0"></p>
@@ -263,6 +264,17 @@ function renderBurnMeal() {
 
 /* ---------- photo capture ---------- */
 let imgData = null; // {b64, type}
+let mealThumb = null, mealFromText = false;
+function updateGo() {
+  const ok = !!imgData || $('#note').value.trim().length >= 3;
+  $('#goBtn').disabled = !ok;
+  $('#goBtn').textContent = imgData ? '✨ Analyze photo with AI' : '✨ Analyze my description';
+}
+$('#note').oninput = updateGo;
+$('#rmPhoto').onclick = () => {
+  imgData = null; $('#preview').style.display = 'none'; $('#preview').removeAttribute('src');
+  $('#drop').style.display = 'block'; $('#rmPhoto').style.display = 'none'; updateGo();
+};
 $('#camBtn').onclick = () => $('#camIn').click();
 $('#galBtn').onclick = () => $('#galIn').click();
 $('#drop').onclick = () => $('#camIn').click();
@@ -280,7 +292,7 @@ function loadImage(file) {
     const dataUrl = c.toDataURL('image/jpeg', 0.85);
     imgData = { b64: dataUrl.split(',')[1], type: 'image/jpeg', thumb: thumbOf(c) };
     $('#preview').src = dataUrl; $('#preview').style.display = 'block'; $('#drop').style.display = 'none';
-    $('#goBtn').disabled = false; $('#result').style.display = 'none'; meal = null;
+    $('#rmPhoto').style.display = 'block'; updateGo(); $('#result').style.display = 'none'; meal = null;
     URL.revokeObjectURL(url);
   };
   img.onerror = () => { $('#err').textContent = 'Could not read that image.'; };
@@ -336,6 +348,10 @@ async function askBackend(b64, type, note) {
   delete data.quota;
   return data;
 }
+// Same wording the hosted service uses.
+const promptText = (hasImage, note) => hasImage
+  ? 'Analyze this meal.' + (note ? ` The user adds: "${note.slice(0, 400)}"` : '')
+  : `There is no photo. Estimate the nutrition of this meal as described by the user: "${(note || '').slice(0, 400)}". Use typical portion sizes where the amount is not stated, list each ingredient (including cooking oil or butter if likely), and state your portion assumptions in notes. Set is_food=false only if this is not something edible.`;
 const getKey = () => (store.get('apiKey', '') || '').trim();
 async function askClaude(b64, type, note) {
   const key = getKey();
@@ -349,8 +365,8 @@ async function askClaude(b64, type, note) {
       body: JSON.stringify({ model: MODEL, max_tokens: 2500, system: SYSTEM, tools: [TOOL],
         tool_choice: { type: 'tool', name: 'report_meal' },
         messages: [{ role: 'user', content: [
-          { type: 'image', source: { type: 'base64', media_type: type, data: b64 } },
-          { type: 'text', text: 'Analyze this meal.' + (note ? ` The user adds: "${note.slice(0, 300)}"` : '') }] }] }),
+          ...(b64 ? [{ type: 'image', source: { type: 'base64', media_type: type, data: b64 } }] : []),
+          { type: 'text', text: promptText(b64, note) }] }] }),
     });
   } catch { throw new Error('No internet connection. Connect and try again.'); }
   const data = typeof r.json === 'function' ? await r.json().catch(() => ({})) : {};
@@ -360,7 +376,7 @@ async function askClaude(b64, type, note) {
     throw new Error(data?.error?.message || `AI service error (${r.status})`);
   }
   const block = (data.content || []).find((b) => b.type === 'tool_use');
-  if (!block) throw new Error('AI returned no analysis. Try another photo.');
+  if (!block) throw new Error('AI returned no analysis. Try again.');
   return block.input;
 }
 
@@ -370,16 +386,19 @@ $('#goBtn').onclick = async () => {
   const btn = $('#goBtn'); $('#err').textContent = '';
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Analyzing…';
   try {
-    const data = await (BACKEND_URL ? askBackend : askClaude)(imgData.b64, imgData.type, $('#note').value.trim());
-    if (!data.is_food || !data.ingredients?.length) throw new Error("I couldn't find food in that photo. Try a closer, well-lit shot.");
-    meal = data;
+    const use = imgData, note = $('#note').value.trim();
+    const data = await (BACKEND_URL ? askBackend : askClaude)(use?.b64, use?.type, note);
+    if (!data.is_food || !data.ingredients?.length) throw new Error(use
+      ? "I couldn't find food in that photo. Try a closer, well-lit shot."
+      : "I couldn't tell what food that is. Try describing it, e.g. \"2 boiled eggs and toast\".");
+    meal = data; mealThumb = use?.thumb || null; mealFromText = !use;
     for (const i of meal.ingredients) {
       const w = i.weight_g || 1;
       i.per = { calories: i.calories / w, protein_g: i.protein_g / w, carbs_g: i.carbs_g / w, fat_g: i.fat_g / w };
     }
     renderMeal();
   } catch (e) { $('#err').textContent = e.message; }
-  btn.disabled = false; btn.textContent = '✨ Analyze with AI';
+  updateGo();
 };
 
 function totals() {
@@ -396,7 +415,7 @@ const macroHtml = (t) => `
 function renderMeal() {
   $('#result').style.display = 'block';
   $('#dish').textContent = meal.dish_name;
-  $('#meta').textContent = [meal.cuisine, meal.serving_description, `${r0(meal.confidence * 100)}% sure`].filter(Boolean).join(' · ');
+  $('#meta').textContent = [mealFromText ? '📝 From your description' : '', meal.cuisine, meal.serving_description, `${r0(meal.confidence * 100)}% sure`].filter(Boolean).join(' · ');
   $('#notes').textContent = meal.notes || '';
   $('#ings').innerHTML = meal.ingredients.map((i, idx) => `
     <div class="ing">
@@ -423,7 +442,7 @@ const today = () => new Date().toLocaleDateString('en-CA');
 let LOG = store.get('log', {});
 $('#saveBtn').onclick = () => {
   const t = totals();
-  (LOG[today()] ||= []).push({ id: Date.now(), name: meal.dish_name, thumb: imgData?.thumb, ...t });
+  (LOG[today()] ||= []).push({ id: Date.now(), name: meal.dish_name, thumb: mealThumb, ...t });
   store.set('log', LOG);
   $('#saveBtn').textContent = '✅ Added!';
   setTimeout(() => ($('#saveBtn').textContent = "➕ Add to today's log"), 1500);
@@ -518,6 +537,7 @@ $('#key').value = getKey();
 $('#key').oninput = (e) => store.set('apiKey', e.target.value.trim());
 renderProfile();
 renderQuota();
+updateGo();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
