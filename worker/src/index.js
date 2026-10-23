@@ -4,18 +4,31 @@ const SYSTEM = `You are a registered-dietitian-grade food analyst. Given a photo
 2. Dissect it into its individual ingredients, including hidden ones that are very likely present (cooking oil, sauces, dressings, butter, sugar).
 3. Estimate the cooked/served weight in grams of EACH ingredient from visual cues (plate size, utensils, portion depth, typical serving sizes).
 4. For each ingredient give calories (kcal), protein, carbohydrate and fat in grams for that weight, using standard USDA-style nutrition values.
-Be realistic, not optimistic: restaurant portions are usually larger and oilier than home cooking. If the image contains no edible food or drink, set is_food=false and return an empty ingredient list.`;
+Be realistic, not optimistic: restaurant portions are usually larger and oilier than home cooking. If the image contains no edible food or drink, set is_food=false and return an empty ingredient list.
+
+WORKOUTS: the image or text may instead show exercise: a screenshot or photo of a fitness summary (Apple Watch/Fitness, Garmin, Fitbit, Strava, Peloton, or a treadmill, bike or elliptical display), or a typed description like "30 min run". Then set kind="exercise", is_food=false, dish_name to the activity name, ingredients to an empty list, and fill the exercise object. Read the calories burned from the screen. If both Active and Total calories are shown, use Active calories and say so in notes. If no calories are shown, estimate them from the activity, duration, distance, pace and the person's weight, and set estimated=true. If it shows a meal, set kind="food". If it is neither food nor exercise, set kind="other". Only report numbers that are on the screen, or clearly mark them as estimated.`;
 
 const ING = {
   name: { type: 'string' }, weight_g: { type: 'number' }, calories: { type: 'number' },
   protein_g: { type: 'number' }, carbs_g: { type: 'number' }, fat_g: { type: 'number' }, visible: { type: 'boolean' },
 };
+const EXERCISE = {
+  type: 'object', required: ['activity', 'calories_burned'],
+  properties: {
+    activity: { type: 'string' }, duration_min: { type: 'number' }, distance_km: { type: 'number' },
+    calories_burned: { type: 'number' }, avg_heart_rate: { type: 'number' },
+    estimated: { type: 'boolean', description: 'true if calories were estimated rather than read from the screen' },
+    source: { type: 'string', description: 'e.g. Apple Watch screenshot, treadmill display, typed description' },
+  },
+};
 const PROPS = {
+  kind: { type: 'string', description: 'food, exercise or other' },
+  exercise: EXERCISE,
   is_food: { type: 'boolean' }, dish_name: { type: 'string' }, cuisine: { type: 'string' },
   confidence: { type: 'number' }, serving_description: { type: 'string' }, notes: { type: 'string' },
   ingredients: { type: 'array', items: { type: 'object', required: ['name', 'weight_g', 'calories', 'protein_g', 'carbs_g', 'fat_g'], properties: ING } },
 };
-const REQUIRED = ['is_food', 'dish_name', 'confidence', 'ingredients'];
+const REQUIRED = ['kind', 'is_food', 'dish_name', 'confidence', 'ingredients'];
 const upper = (s) => JSON.parse(JSON.stringify(s), (k, v) => (k === 'type' && typeof v === 'string' ? v.toUpperCase() : v));
 
 const TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -41,6 +54,8 @@ export default {
     let body;
     try { body = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }
     const { image, mediaType, note } = body || {};
+    const kg = Number(body?.weight_kg);
+    const who = kg >= 20 && kg <= 300 ? ` The person weighs about ${Math.round(kg)} kg.` : ' The person\'s weight is unknown; assume 70 kg if you must estimate.';
     const hasImage = image !== undefined && image !== null;
     const text = typeof note === 'string' ? note.trim().slice(0, 400) : '';
     if (hasImage ? (typeof image !== 'string' || image.length > MAX_B64 || !TYPES.has(mediaType)) : text.length < 3) {
@@ -68,8 +83,8 @@ export default {
     }
 
     const userText = hasImage
-      ? 'Analyze this meal.' + (text ? ` The user adds: "${text}"` : '')
-      : `There is no photo. Estimate the nutrition of this meal as described by the user: "${text}". Use typical portion sizes where the amount is not stated, list each ingredient (including cooking oil or butter if likely), and state your portion assumptions in notes. Set is_food=false only if this is not something edible.`;
+      ? 'Analyze this image (a meal, or a screenshot or photo of a workout).' + who + (text ? ` The user adds: "${text}"` : '')
+      : `There is no image. The user describes what they ate or did: "${text}". If it is food, estimate its nutrition with typical portion sizes where the amount is not stated, listing each ingredient (including cooking oil or butter if likely) and stating portion assumptions in notes. If it is exercise, set kind="exercise" and estimate the calories burned (estimated=true).` + who;
     const models = env.PROVIDER === 'claude' ? [env.CLAUDE_MODEL]
       : (env.GEMINI_MODELS || env.GEMINI_MODEL).split(',').map((m) => m.trim()).filter(Boolean);
     const ask = env.PROVIDER === 'claude' ? askClaude : askGemini;

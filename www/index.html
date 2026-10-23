@@ -62,19 +62,19 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
 
 <!-- SCAN -->
 <section class="view on" id="v-scan">
-  <h1>📸 Scan your food</h1>
+  <h1>📸 Scan food or workout</h1>
   <div class="card">
     <img id="preview" alt="Your meal">
     <button class="btn sec sm" id="rmPhoto" style="display:none;margin-bottom:12px">✖ Remove photo (describe it instead)</button>
-    <div class="drop" id="drop"><b>🍽️</b>Take a photo of your meal<div class="mute" style="margin-top:4px">or just describe it below</div></div>
+    <div class="drop" id="drop"><b>🍽️</b>Take a photo of your meal<div class="mute" style="margin-top:4px">or a screenshot of your workout, or just describe it below</div></div>
     <div class="row">
       <button class="btn" id="camBtn">📷 Camera</button>
       <button class="btn sec" id="galBtn">🖼️ Gallery</button>
     </div>
     <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
     <input type="file" id="galIn" accept="image/*" hidden>
-    <label for="note"><b style="color:var(--ink)">Describe your meal</b> — no photo needed, or add a hint to your photo</label>
-    <textarea id="note" rows="3" maxlength="400" style="resize:vertical" placeholder='No photo? Type it, e.g. "2 boiled eggs and toast with butter"'></textarea>
+    <label for="note"><b style="color:var(--ink)">Describe your meal or workout</b> — no photo needed, or add a hint</label>
+    <textarea id="note" rows="3" maxlength="400" style="resize:vertical" placeholder='No photo? Type it, e.g. "2 boiled eggs" or "30 min run"'></textarea>
     <div style="height:12px"></div>
     <button class="btn" id="goBtn" disabled>✨ Analyze with AI</button>
     <p class="mute" id="quota" style="text-align:center;margin:10px 0 0"></p>
@@ -98,6 +98,21 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     </div>
     <button class="btn" id="saveBtn">➕ Add to today's log</button>
   </div>
+
+  <div id="exResult" style="display:none">
+    <div class="card">
+      <h2 id="exName">Workout</h2>
+      <div class="mute" id="exMeta"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:12px 0">
+        <span style="font-size:34px">🔥</span>
+        <input id="exKcal" type="number" inputmode="decimal" min="0" style="font-size:28px;font-weight:700;width:130px;text-align:right" aria-label="Calories burned">
+        <span class="mute" style="font-size:18px">kcal burned</span>
+      </div>
+      <div class="mute" id="exNotes"></div>
+      <div class="mute" style="margin-top:8px">Check the number against your device and edit it if it's wrong.</div>
+    </div>
+    <button class="btn" id="exSave">➕ Add workout to today's log</button>
+  </div>
 </section>
 
 <!-- LOG -->
@@ -114,8 +129,9 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <div class="bar" id="bar"><i style="width:0"></i></div>
     <div class="macros" id="dayMacros"></div>
     <div class="mute" id="balance"></div>
+    <div id="exLine" style="margin-top:6px"></div>
   </div>
-  <div class="card"><h2>Meals</h2><div id="meals" class="mute">Nothing logged yet.</div></div>
+  <div class="card"><h2>Meals &amp; workouts</h2><div id="meals" class="mute">Nothing logged yet.</div></div>
   <div class="card"><h2>Past days</h2><div id="history" class="mute">No history yet.</div></div>
 </section>
 
@@ -292,7 +308,7 @@ function loadImage(file) {
     const dataUrl = c.toDataURL('image/jpeg', 0.85);
     imgData = { b64: dataUrl.split(',')[1], type: 'image/jpeg', thumb: thumbOf(c) };
     $('#preview').src = dataUrl; $('#preview').style.display = 'block'; $('#drop').style.display = 'none';
-    $('#rmPhoto').style.display = 'block'; updateGo(); $('#result').style.display = 'none'; meal = null;
+    $('#rmPhoto').style.display = 'block'; updateGo(); $('#result').style.display = 'none'; $('#exResult').style.display = 'none'; meal = null; exercise = null;
     URL.revokeObjectURL(url);
   };
   img.onerror = () => { $('#err').textContent = 'Could not read that image.'; };
@@ -335,12 +351,13 @@ function renderQuota() {
 function setQuota(q) { if (q && typeof q.left === 'number') { store.set('quota', { date: today(), left: q.left, limit: q.limit }); renderQuota(); } }
 const BACKEND_URL = 'https://nutrisnap-api.tom-liam.workers.dev';
 const deviceId = (() => { let d = store.get('deviceId', ''); if (!d) { d = (crypto.randomUUID?.() || String(Math.random()).slice(2) + Date.now()); store.set('deviceId', d); } return d; })();
+const userKg = () => { const { kg } = kgCm(); return kg > 20 ? Math.round(kg) : undefined; };
 async function askBackend(b64, type, note) {
   let r;
   try {
     r = await fetch(BACKEND_URL + '/analyze', { method: 'POST',
       headers: { 'content-type': 'application/json', 'x-device-id': deviceId },
-      body: JSON.stringify({ image: b64, mediaType: type, note }) });
+      body: JSON.stringify({ image: b64, mediaType: type, note, weight_kg: userKg() }) });
   } catch { throw new Error('No internet connection. Connect and try again.'); }
   const data = await r.json().catch(() => ({}));
   setQuota(data.quota);
@@ -381,6 +398,7 @@ async function askClaude(b64, type, note) {
 }
 
 /* ---------- AI analysis ---------- */
+let exercise = null; // workout read from a screenshot or description
 let meal = null; // {dish_name, ..., ingredients:[{..., base:{per-gram}}]}
 $('#goBtn').onclick = async () => {
   const btn = $('#goBtn'); $('#err').textContent = '';
@@ -388,10 +406,14 @@ $('#goBtn').onclick = async () => {
   try {
     const use = imgData, note = $('#note').value.trim();
     const data = await (BACKEND_URL ? askBackend : askClaude)(use?.b64, use?.type, note);
-    if (!data.is_food || !data.ingredients?.length) throw new Error(use
-      ? "I couldn't find food in that photo. Try a closer, well-lit shot."
-      : "I couldn't tell what food that is. Try describing it, e.g. \"2 boiled eggs and toast\".");
-    meal = data; mealThumb = use?.thumb || null; mealFromText = !use;
+    const isEx = data.kind === 'exercise' && Number(data.exercise?.calories_burned) > 0;
+    if (!isEx && (!data.is_food || !data.ingredients?.length)) throw new Error(use
+      ? "I couldn't find a meal or a workout in that image. Try a closer, well-lit shot or a clear screenshot."
+      : "I couldn't tell what that is. Try e.g. \"2 boiled eggs and toast\" or \"30 min run\".");
+    mealThumb = use?.thumb || null; mealFromText = !use;
+    if (isEx) { exercise = { ...data.exercise, notes: data.notes || '' }; meal = null; renderExercise(); updateGo(); return; }
+    exercise = null; $('#exResult').style.display = 'none';
+    meal = data;
     for (const i of meal.ingredients) {
       const w = i.weight_g || 1;
       i.per = { calories: i.calories / w, protein_g: i.protein_g / w, carbs_g: i.carbs_g / w, fat_g: i.fat_g / w };
@@ -401,6 +423,17 @@ $('#goBtn').onclick = async () => {
   updateGo();
 };
 
+function renderExercise() {
+  $('#result').style.display = 'none'; $('#exResult').style.display = 'block';
+  $('#exName').textContent = exercise.activity || 'Workout';
+  $('#exMeta').textContent = [mealFromText ? '📝 From your description' : '', exercise.source,
+    exercise.duration_min ? `${r0(exercise.duration_min)} min` : '', exercise.distance_km ? `${r1(exercise.distance_km)} km` : '',
+    exercise.avg_heart_rate ? `avg ${r0(exercise.avg_heart_rate)} bpm` : '',
+    exercise.estimated ? 'estimated' : 'read from screen'].filter(Boolean).join(' · ');
+  $('#exKcal').value = r0(exercise.calories_burned);
+  $('#exNotes').textContent = exercise.notes || '';
+  $('#exResult').scrollIntoView({ behavior: 'smooth' });
+}
 function totals() {
   const t = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, weight_g: 0 };
   for (const i of meal.ingredients) { for (const k of ['calories', 'protein_g', 'carbs_g', 'fat_g']) t[k] += i[k]; t.weight_g += i.weight_g; }
@@ -450,9 +483,19 @@ $('#saveBtn').onclick = () => {
 let viewDate = today();
 const shiftDay = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toLocaleDateString('en-CA'); };
 const prettyDay = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-const sumMeals = (items) => items.reduce((a, m) => { for (const k of ['calories', 'protein_g', 'carbs_g', 'fat_g']) a[k] += m[k]; return a; }, { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
+const isEx = (m) => m.type === 'exercise';
+const burnedSum = (items) => items.filter(isEx).reduce((a, m) => a + (+m.burned || 0), 0);
+const sumMeals = (items) => items.filter((m) => !isEx(m)).reduce((a, m) => { for (const k of ['calories', 'protein_g', 'carbs_g', 'fat_g']) a[k] += m[k]; return a; }, { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
 $('#dPrev').onclick = () => { viewDate = shiftDay(viewDate, -1); renderLog(); };
 $('#dNext').onclick = () => { if (viewDate < today()) { viewDate = shiftDay(viewDate, 1); renderLog(); } };
+$('#exSave').onclick = () => {
+  const burned = Math.max(0, +$('#exKcal').value || 0);
+  (LOG[today()] ||= []).push({ id: Date.now(), type: 'exercise', name: exercise.activity || 'Workout', burned,
+    duration_min: exercise.duration_min || 0, distance_km: exercise.distance_km || 0, thumb: mealThumb });
+  store.set('log', LOG);
+  $('#exSave').textContent = '✅ Added!';
+  setTimeout(() => ($('#exSave').textContent = "➕ Add workout to today's log"), 1500);
+};
 function renderLog() {
   if (viewDate > today()) viewDate = today();
   const items = LOG[viewDate] || [];
@@ -470,7 +513,13 @@ function renderLog() {
   $('#balance').textContent = !e || !items.length ? '' : t.calories > e.tdee
     ? `Surplus of ${r0(t.calories - e.tdee)} kcal vs. your daily burn.`
     : `Deficit of ${r0(e.tdee - t.calories)} kcal vs. your daily burn.`;
-  $('#meals').innerHTML = items.length ? items.map((m) => `
+  const exTotal = burnedSum(items);
+  $('#exLine').innerHTML = exTotal > 0 ? `🔥 <b>${r0(exTotal)} kcal</b> burned in logged workouts · net <b>${r0(t.calories - exTotal)} kcal</b> (eaten − workouts)` : '';
+  $('#meals').innerHTML = items.length ? items.map((m) => isEx(m) ? `
+    <div class="meal"><div style="display:flex;gap:10px;align-items:center">
+      ${m.thumb ? `<img src="${m.thumb}" width="44" height="44" style="border-radius:8px;object-fit:cover">` : ''}
+      <div><b>🔥 ${esc(m.name)}</b><div class="mute">${r0(m.burned)} kcal burned${m.duration_min ? ' · ' + r0(m.duration_min) + ' min' : ''}${m.distance_km ? ' · ' + r1(m.distance_km) + ' km' : ''}</div></div></div>
+      <button data-id="${m.id}" aria-label="Delete">🗑️</button></div>` : `
     <div class="meal"><div style="display:flex;gap:10px;align-items:center">
       ${m.thumb ? `<img src="${m.thumb}" width="44" height="44" style="border-radius:8px;object-fit:cover">` : ''}
       <div><b>${esc(m.name)}</b><div class="mute">${r0(m.calories)} kcal · ${r0(m.weight_g)} g<br>P ${r1(m.protein_g)} · C ${r1(m.carbs_g)} · F ${r1(m.fat_g)}</div></div></div>
@@ -482,8 +531,8 @@ function renderLog() {
   });
   const days = Object.keys(LOG).filter((d) => LOG[d].length).sort().reverse().slice(0, 60);
   $('#history').innerHTML = days.length ? days.map((d) => {
-    const dt = sumMeals(LOG[d]);
-    return `<div class="meal" data-d="${d}" style="cursor:pointer${d === viewDate ? ';font-weight:700' : ''}"><div>${d === today() ? 'Today' : prettyDay(d)}<div class="mute">${LOG[d].length} meal${LOG[d].length > 1 ? 's' : ''} · P ${r0(dt.protein_g)} · C ${r0(dt.carbs_g)} · F ${r0(dt.fat_g)}</div></div><b>${r0(dt.calories)} kcal</b></div>`;
+    const dt = sumMeals(LOG[d]), nFood = LOG[d].filter((m) => !isEx(m)).length, bd = burnedSum(LOG[d]);
+    return `<div class="meal" data-d="${d}" style="cursor:pointer${d === viewDate ? ';font-weight:700' : ''}"><div>${d === today() ? 'Today' : prettyDay(d)}<div class="mute">${nFood} meal${nFood === 1 ? '' : 's'} · P ${r0(dt.protein_g)} · C ${r0(dt.carbs_g)} · F ${r0(dt.fat_g)}${bd ? ` · 🔥 ${r0(bd)} burned` : ''}</div></div><b>${r0(dt.calories)} kcal</b></div>`;
   }).join('') : 'No history yet.';
   document.querySelectorAll('#history .meal').forEach((el) => el.onclick = () => { viewDate = el.dataset.d; renderLog(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
 }
@@ -504,9 +553,9 @@ $('#expCsv').onclick = async () => {
   const days = Object.keys(LOG).sort();
   if (!days.some((d) => LOG[d].length)) return dataMsg('Nothing to export yet — log a meal first.', true);
   const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-  const rows = [['date', 'meal', 'calories_kcal', 'protein_g', 'carbs_g', 'fat_g', 'weight_g'].join(',')];
-  for (const d of days) for (const m of LOG[d]) rows.push([d, q(m.name), r0(m.calories), r1(m.protein_g), r1(m.carbs_g), r1(m.fat_g), r0(m.weight_g)].join(','));
-  if (await saveFile(`nutrisnap-history-${today()}.csv`, 'text/csv', rows.join('\n'))) dataMsg('Exported ' + (rows.length - 1) + ' meals.');
+  const rows = [['date', 'type', 'name', 'calories_eaten_kcal', 'calories_burned_kcal', 'protein_g', 'carbs_g', 'fat_g', 'weight_g', 'duration_min'].join(',')];
+  for (const d of days) for (const m of LOG[d]) rows.push(isEx(m) ? [d, 'workout', q(m.name), '', r0(m.burned), '', '', '', '', r0(m.duration_min || 0)].join(',') : [d, 'meal', q(m.name), r0(m.calories), '', r1(m.protein_g), r1(m.carbs_g), r1(m.fat_g), r0(m.weight_g), ''].join(','));
+  if (await saveFile(`nutrisnap-history-${today()}.csv`, 'text/csv', rows.join('\n'))) dataMsg('Exported ' + (rows.length - 1) + ' entries.');
 };
 $('#expJson').onclick = async () => {
   const backup = { app: 'nutrisnap', version: 1, exported: new Date().toISOString(), profile: P, log: LOG };
@@ -523,12 +572,12 @@ $('#impIn').onchange = async (e) => {
     for (const [d, list] of Object.entries(b.log)) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(list)) continue;
       const have = new Set((LOG[d] ||= []).map((m) => m.id));
-      for (const m of list) if (m && typeof m.calories === 'number' && !have.has(m.id)) { LOG[d].push(m); added++; }
+      for (const m of list) if (m && typeof (m.calories ?? m.burned) === 'number' && !have.has(m.id)) { LOG[d].push(m); added++; }
       if (!LOG[d].length) delete LOG[d];
     }
     store.set('log', LOG);
     if (b.profile && typeof b.profile === 'object') { P = Object.assign(P, b.profile); store.set('profile', P); renderProfile(); }
-    renderLog(); dataMsg(`Restored. ${added} meal${added === 1 ? '' : 's'} added.`);
+    renderLog(); dataMsg(`Restored. ${added} entr${added === 1 ? 'y' : 'ies'} added.`);
   } catch { dataMsg("That file isn't a NutriSnap backup.", true); }
 };
 
