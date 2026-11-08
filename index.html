@@ -77,6 +77,7 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <textarea id="note" rows="3" maxlength="400" style="resize:vertical" placeholder='No photo? Type it, e.g. "2 boiled eggs" or "30 min run"'></textarea>
     <div style="height:12px"></div>
     <button class="btn" id="goBtn" disabled>✨ Analyze with AI</button>
+    <button class="btn sec" id="clearBtn" style="display:none;margin-top:10px">↺ Clear and start over</button>
     <p class="mute" id="quota" style="text-align:center;margin:10px 0 0"></p>
     <p class="err" id="err"></p>
   </div>
@@ -292,7 +293,19 @@ function updateGo() {
   const ok = !!imgData || $('#note').value.trim().length >= 3;
   $('#goBtn').disabled = !ok;
   $('#goBtn').textContent = imgData ? '✨ Analyze photo with AI' : '✨ Analyze my description';
+  const has = imgData || $('#note').value || meal || exercise || $('#err').textContent;
+  $('#clearBtn').style.display = has ? 'flex' : 'none'; $('#clearBtn').disabled = false;
 }
+function clearAll() {
+  imgData = null; meal = null; exercise = null; mealThumb = null; mealFromText = false;
+  $('#preview').style.display = 'none'; $('#preview').removeAttribute('src');
+  $('#drop').style.display = 'block'; $('#rmPhoto').style.display = 'none';
+  $('#note').value = ''; $('#err').textContent = '';
+  $('#result').style.display = 'none'; $('#exResult').style.display = 'none';
+  $('#camIn').value = ''; $('#galIn').value = '';
+  updateGo(); window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+$('#clearBtn').onclick = clearAll;
 $('#note').oninput = updateGo;
 $('#rmPhoto').onclick = () => {
   imgData = null; $('#preview').style.display = 'none'; $('#preview').removeAttribute('src');
@@ -409,7 +422,7 @@ let exercise = null; // workout read from a screenshot or description
 let meal = null; // {dish_name, ..., ingredients:[{..., base:{per-gram}}]}
 $('#goBtn').onclick = async () => {
   const btn = $('#goBtn'); $('#err').textContent = '';
-  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Analyzing…';
+  btn.disabled = true; $('#clearBtn').disabled = true; btn.innerHTML = '<span class="spin"></span> Analyzing…';
   try {
     const use = imgData, note = $('#note').value.trim();
     const data = await (BACKEND_URL ? askBackend : askClaude)(use?.b64, use?.type, note);
