@@ -178,7 +178,7 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <div style="height:10px"></div>
     <button class="btn sec" id="llToggle">🏋️ Import from Lift Log</button>
     <div id="llBox" style="display:none;margin:8px 0">
-      <div class="mute">In Lift Log, open <b>Setup → Send to NutriSnap</b> and copy (or save) your workouts. Then paste the text here, or choose the file.</div>
+      <div class="mute">In Lift Log, open <b>Setup → Send to NutriSnap</b> and copy (or save) your workouts. Then paste the text here, or choose the file. Your body weight comes across too.</div>
       <textarea id="llTxt" rows="4" style="resize:vertical;font-size:13px;margin-top:8px" placeholder="Paste the Lift Log text here"></textarea>
       <label style="display:flex;gap:10px;align-items:center;color:var(--ink);font-size:14px;margin:10px 0"><input type="checkbox" id="llWeights" style="width:auto"> Also import weight-lifting sessions <span class="mute">(calories are estimates)</span></label>
       <div class="row"><button class="btn" id="llGo">Import workouts</button><button class="btn sec" id="llFile">Choose file…</button></div>
@@ -606,7 +606,8 @@ function liftExport() {
       .map((m) => { const { thumb, ...rest } = m; return rest; });
     if (arr.length) { log[d] = arr; n += arr.length; }
   }
-  return { n, data: { app: 'nutrisnap', version: 1, for: 'liftlog', exported: new Date().toISOString(), log } };
+  const kg = kgCm().kg;
+  return { n, data: { app: 'nutrisnap', version: 1, for: 'liftlog', exported: new Date().toISOString(), weight_kg: kg > 20 ? Math.round(kg * 10) / 10 : undefined, log } };
 }
 $('#llSendCopy').onclick = async () => {
   const { n, data } = liftExport(); if (!n) return dataMsg('Nothing to send yet — log a meal or workout first.', true);
@@ -641,8 +642,13 @@ function importLift(text) {
     }
     if (!LOG[d].length) delete LOG[d];
   }
+  let wMsg = ''; const wk = +b.weight_kg;
+  if (wk >= 20 && wk <= 300 && Math.abs(kgCm().kg - wk) >= 0.05) {
+    P.wt = P.unit === 'imperial' ? r1(wk / 0.45359237) : r1(wk); store.set('profile', P); renderProfile();
+    wMsg = ` Body weight updated to ${P.wt} ${P.unit === 'imperial' ? 'lb' : 'kg'}.`;
+  }
   store.set('log', LOG); renderLog();
-  dataMsg(`Imported ${added} workout${added === 1 ? '' : 's'} from Lift Log.` + (skipped ? ` ${skipped} weight session${skipped === 1 ? '' : 's'} skipped.` : '') + (dup ? ` ${dup} already imported.` : ''));
+  dataMsg(`Imported ${added} workout${added === 1 ? '' : 's'} from Lift Log.` + (skipped ? ` ${skipped} weight session${skipped === 1 ? '' : 's'} skipped.` : '') + (dup ? ` ${dup} already imported.` : '') + wMsg);
   return true;
 }
 $('#pasteToggle').onclick = () => { const b = $('#pasteBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; if (b.style.display === 'block') $('#pasteTxt').focus(); };
