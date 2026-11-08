@@ -185,6 +185,9 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
       <input type="file" id="llIn" accept="application/json,.json,text/plain" hidden>
     </div>
     <div style="height:8px"></div>
+    <div class="row"><button class="btn sec" id="llSendCopy">📋 Copy for Lift Log</button><button class="btn sec" id="llSendFile">📤 Share file</button></div>
+    <textarea id="llOut" rows="4" readonly style="display:none;margin-top:8px;font-size:12px"></textarea>
+    <div style="height:8px"></div>
     <button class="btn sec" id="expCsv">📄 Export meal history (CSV)</button>
     <div style="height:8px"></div>
     <button class="btn sec" id="expJson">💾 Back up everything (JSON)</button>
@@ -594,6 +597,26 @@ $('#impBtn').onclick = () => $('#impIn').click();
 $('#impIn').onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   restoreText(await f.text());
+};
+/* ---------- send to Lift Log: meals + workouts, no photos, workouts that came from Lift Log are left out ---------- */
+function liftExport() {
+  const log = {}; let n = 0;
+  for (const d of Object.keys(LOG).sort()) {
+    const arr = LOG[d].filter((m) => !(m.source === 'Lift Log' || (typeof m.id === 'number' && m.id < 1e11)))
+      .map((m) => { const { thumb, ...rest } = m; return rest; });
+    if (arr.length) { log[d] = arr; n += arr.length; }
+  }
+  return { n, data: { app: 'nutrisnap', version: 1, for: 'liftlog', exported: new Date().toISOString(), log } };
+}
+$('#llSendCopy').onclick = async () => {
+  const { n, data } = liftExport(); if (!n) return dataMsg('Nothing to send yet — log a meal or workout first.', true);
+  const txt = JSON.stringify(data);
+  try { await navigator.clipboard.writeText(txt); $('#llOut').style.display = 'none'; dataMsg(`Copied ${n} entr${n === 1 ? 'y' : 'ies'}. Open Lift Log → Setup → Import from NutriSnap and paste.`); }
+  catch { const o = $('#llOut'); o.value = txt; o.style.display = 'block'; o.focus(); o.select(); dataMsg('Tap the box, select all, and copy. Then paste it in Lift Log.'); }
+};
+$('#llSendFile').onclick = async () => {
+  const { n, data } = liftExport(); if (!n) return dataMsg('Nothing to send yet — log a meal or workout first.', true);
+  if (await saveFile(`nutrisnap-for-liftlog-${today()}.json`, 'application/json', JSON.stringify(data))) dataMsg(`Saved ${n} entr${n === 1 ? 'y' : 'ies'} for Lift Log.`);
 };
 /* ---------- import workouts from Lift Log ---------- */
 $('#llToggle').onclick = () => { const b = $('#llBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; if (b.style.display === 'block') $('#llTxt').focus(); };
