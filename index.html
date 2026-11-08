@@ -176,18 +176,6 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <h2>💾 Your data</h2>
     <div class="mute">Everything is stored on this phone only. Back it up before deleting the app or switching phones.</div>
     <div style="height:10px"></div>
-    <button class="btn sec" id="llToggle">🏋️ Import from Lift Log</button>
-    <div id="llBox" style="display:none;margin:8px 0">
-      <div class="mute">In Lift Log, open <b>Setup → Send to NutriSnap</b> and copy (or save) your workouts. Then paste the text here, or choose the file. Your body weight comes across too.</div>
-      <textarea id="llTxt" rows="4" style="resize:vertical;font-size:13px;margin-top:8px" placeholder="Paste the Lift Log text here"></textarea>
-      <label style="display:flex;gap:10px;align-items:center;color:var(--ink);font-size:14px;margin:10px 0"><input type="checkbox" id="llWeights" style="width:auto"> Also import weight-lifting sessions <span class="mute">(calories are estimates)</span></label>
-      <div class="row"><button class="btn" id="llGo">Import workouts</button><button class="btn sec" id="llFile">Choose file…</button></div>
-      <input type="file" id="llIn" accept="application/json,.json,text/plain" hidden>
-    </div>
-    <div style="height:8px"></div>
-    <div class="row"><button class="btn sec" id="llSendCopy">📋 Copy for Lift Log</button><button class="btn sec" id="llSendFile">📤 Share file</button></div>
-    <textarea id="llOut" rows="4" readonly style="display:none;margin-top:8px;font-size:12px"></textarea>
-    <div style="height:8px"></div>
     <button class="btn sec" id="expCsv">📄 Export meal history (CSV)</button>
     <div style="height:8px"></div>
     <button class="btn sec" id="expJson">💾 Back up everything (JSON)</button>
@@ -197,10 +185,25 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <div style="height:8px"></div>
     <button class="btn sec" id="pasteToggle">📋 Restore from pasted text</button>
     <div id="pasteBox" style="display:none;margin-top:8px">
-      <textarea id="pasteTxt" rows="5" style="resize:vertical;font-size:13px" placeholder="Paste the backup text here, for example from Lift Log"></textarea>
+      <textarea id="pasteTxt" rows="5" style="resize:vertical;font-size:13px" placeholder="Paste the backup text here"></textarea>
       <div style="height:8px"></div>
       <button class="btn" id="pasteGo">Restore</button>
     </div>
+    <details id="llDet" style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+      <summary style="cursor:pointer;font-weight:600">🔗 Connect with Lift Log <span class="mute" style="font-weight:400">(optional)</span></summary>
+      <div class="mute" style="margin-top:8px">Only if you also use the Lift Log app. NutriSnap works fully on its own.</div>
+    <div id="llBox" style="margin:10px 0">
+      <div class="label" style="margin-bottom:4px;color:var(--ink)"><b>Import from Lift Log</b></div><div class="mute">In Lift Log, open <b>Setup → Send to NutriSnap</b> and copy (or save) your workouts. Then paste the text here, or choose the file. Your body weight comes across too.</div>
+      <textarea id="llTxt" rows="4" style="resize:vertical;font-size:13px;margin-top:8px" placeholder="Paste the Lift Log text here"></textarea>
+      <label style="display:flex;gap:10px;align-items:center;color:var(--ink);font-size:14px;margin:10px 0"><input type="checkbox" id="llWeights" style="width:auto"> Also import weight-lifting sessions <span class="mute">(calories are estimates)</span></label>
+      <div class="row"><button class="btn" id="llGo">Import workouts</button><button class="btn sec" id="llFile">Choose file…</button></div>
+      <input type="file" id="llIn" accept="application/json,.json,text/plain" hidden>
+    </div>
+    <div class="label" style="margin:14px 0 6px;color:var(--ink)"><b>Send to Lift Log</b></div>
+    <div class="row"><button class="btn sec" id="llSendCopy">📋 Copy for Lift Log</button><button class="btn sec" id="llSendFile">📤 Share file</button></div>
+    <textarea id="llOut" rows="4" readonly style="display:none;margin-top:8px;font-size:12px"></textarea>
+    <div style="height:8px"></div>
+    </details>
     <p class="mute" id="dataMsg" style="margin:10px 0 0"></p>
   </div>
   <p class="mute">Estimates only — food photos can't reveal oil, sauces or exact portions, and burn rates vary by person. Not medical advice.</p>
@@ -620,7 +623,6 @@ $('#llSendFile').onclick = async () => {
   if (await saveFile(`nutrisnap-for-liftlog-${today()}.json`, 'application/json', JSON.stringify(data))) dataMsg(`Saved ${n} entr${n === 1 ? 'y' : 'ies'} for Lift Log.`);
 };
 /* ---------- import workouts from Lift Log ---------- */
-$('#llToggle').onclick = () => { const b = $('#llBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; if (b.style.display === 'block') $('#llTxt').focus(); };
 $('#llFile').onclick = () => $('#llIn').click();
 $('#llIn').onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importLift(await f.text()); };
 $('#llGo').onclick = () => { const t = $('#llTxt').value.trim(); if (!t) return dataMsg('Paste the Lift Log text first.', true); if (importLift(t)) $('#llTxt').value = ''; };
