@@ -181,6 +181,13 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <div style="height:8px"></div>
     <button class="btn sec" id="impBtn">♻️ Restore from backup</button>
     <input type="file" id="impIn" accept="application/json,.json" hidden>
+    <div style="height:8px"></div>
+    <button class="btn sec" id="pasteToggle">📋 Restore from pasted text</button>
+    <div id="pasteBox" style="display:none;margin-top:8px">
+      <textarea id="pasteTxt" rows="5" style="resize:vertical;font-size:13px" placeholder="Paste the backup text here, for example from Lift Log"></textarea>
+      <div style="height:8px"></div>
+      <button class="btn" id="pasteGo">Restore</button>
+    </div>
     <p class="mute" id="dataMsg" style="margin:10px 0 0"></p>
   </div>
   <p class="mute">Estimates only — food photos can't reveal oil, sauces or exact portions, and burn rates vary by person. Not medical advice.</p>
@@ -564,8 +571,13 @@ $('#expJson').onclick = async () => {
 $('#impBtn').onclick = () => $('#impIn').click();
 $('#impIn').onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  restoreText(await f.text());
+};
+$('#pasteToggle').onclick = () => { const b = $('#pasteBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; if (b.style.display === 'block') $('#pasteTxt').focus(); };
+$('#pasteGo').onclick = () => { const t = $('#pasteTxt').value.trim(); if (!t) return dataMsg('Paste the backup text first.', true); if (restoreText(t)) { $('#pasteTxt').value = ''; $('#pasteBox').style.display = 'none'; } };
+function restoreText(text) {
   try {
-    const b = JSON.parse(await f.text());
+    const b = JSON.parse(text);
     if (b.app !== 'nutrisnap' || typeof b.log !== 'object' || b.log === null) throw new Error('bad');
     if (!confirm('Restore this backup? Meals are merged with what you have now, and your profile is replaced by the backup\'s.')) return;
     let added = 0;
@@ -578,8 +590,9 @@ $('#impIn').onchange = async (e) => {
     store.set('log', LOG);
     if (b.profile && typeof b.profile === 'object') { P = Object.assign(P, b.profile); store.set('profile', P); renderProfile(); }
     renderLog(); dataMsg(`Restored. ${added} entr${added === 1 ? 'y' : 'ies'} added.`);
-  } catch { dataMsg("That file isn't a NutriSnap backup.", true); }
-};
+    return true;
+  } catch { dataMsg("That isn't a NutriSnap backup.", true); return false; }
+}
 
 if (BACKEND_URL) $('#advCard').style.display = 'none';
 $('#key').value = getKey();
