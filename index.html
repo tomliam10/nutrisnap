@@ -176,6 +176,15 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
     <h2>💾 Your data</h2>
     <div class="mute">Everything is stored on this phone only. Back it up before deleting the app or switching phones.</div>
     <div style="height:10px"></div>
+    <button class="btn sec" id="llToggle">🏋️ Import from Lift Log</button>
+    <div id="llBox" style="display:none;margin:8px 0">
+      <div class="mute">In Lift Log, open <b>Setup → Send to NutriSnap</b> and copy (or save) your workouts. Then paste the text here, or choose the file.</div>
+      <textarea id="llTxt" rows="4" style="resize:vertical;font-size:13px;margin-top:8px" placeholder="Paste the Lift Log text here"></textarea>
+      <label style="display:flex;gap:10px;align-items:center;color:var(--ink);font-size:14px;margin:10px 0"><input type="checkbox" id="llWeights" style="width:auto"> Also import weight-lifting sessions <span class="mute">(calories are estimates)</span></label>
+      <div class="row"><button class="btn" id="llGo">Import workouts</button><button class="btn sec" id="llFile">Choose file…</button></div>
+      <input type="file" id="llIn" accept="application/json,.json,text/plain" hidden>
+    </div>
+    <div style="height:8px"></div>
     <button class="btn sec" id="expCsv">📄 Export meal history (CSV)</button>
     <div style="height:8px"></div>
     <button class="btn sec" id="expJson">💾 Back up everything (JSON)</button>
@@ -538,7 +547,7 @@ function renderLog() {
   $('#meals').innerHTML = items.length ? items.map((m) => isEx(m) ? `
     <div class="meal"><div style="display:flex;gap:10px;align-items:center">
       ${m.thumb ? `<img src="${m.thumb}" width="44" height="44" style="border-radius:8px;object-fit:cover">` : ''}
-      <div><b>🔥 ${esc(m.name)}</b><div class="mute">${r0(m.burned)} kcal burned${m.duration_min ? ' · ' + r0(m.duration_min) + ' min' : ''}${m.distance_km ? ' · ' + r1(m.distance_km) + ' km' : ''}</div></div></div>
+      <div><b>🔥 ${esc(m.name)}</b><div class="mute">${r0(m.burned)} kcal burned${m.duration_min ? ' · ' + r0(m.duration_min) + ' min' : ''}${m.distance_km ? ' · ' + r1(m.distance_km) + ' km' : ''}${m.source ? ' · ' + esc(m.source) : ''}</div></div></div>
       <button data-id="${m.id}" aria-label="Delete">🗑️</button></div>` : `
     <div class="meal"><div style="display:flex;gap:10px;align-items:center">
       ${m.thumb ? `<img src="${m.thumb}" width="44" height="44" style="border-radius:8px;object-fit:cover">` : ''}
@@ -586,6 +595,33 @@ $('#impIn').onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   restoreText(await f.text());
 };
+/* ---------- import workouts from Lift Log ---------- */
+$('#llToggle').onclick = () => { const b = $('#llBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; if (b.style.display === 'block') $('#llTxt').focus(); };
+$('#llFile').onclick = () => $('#llIn').click();
+$('#llIn').onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importLift(await f.text()); };
+$('#llGo').onclick = () => { const t = $('#llTxt').value.trim(); if (!t) return dataMsg('Paste the Lift Log text first.', true); if (importLift(t)) $('#llTxt').value = ''; };
+function importLift(text) {
+  let b; try { b = JSON.parse(text); } catch { b = null; }
+  if (!b || b.app !== 'nutrisnap' || typeof b.log !== 'object' || b.log === null) { dataMsg("That isn't Lift Log text. In Lift Log use Setup → Send to NutriSnap.", true); return false; }
+  const withWeights = $('#llWeights').checked;
+  let added = 0, skipped = 0, dup = 0;
+  for (const [d, list] of Object.entries(b.log)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(list)) continue;
+    const have = new Set((LOG[d] ||= []).map((m) => m.id));
+    for (const m of list) {
+      if (!m || m.type !== 'exercise' || !(+m.burned >= 0)) continue;
+      if (/^weights/i.test(String(m.name)) && !withWeights) { skipped++; continue; }
+      if (have.has(m.id)) { dup++; continue; }
+      LOG[d].push({ id: m.id, type: 'exercise', name: String(m.name || 'Workout').slice(0, 80), burned: +m.burned,
+        duration_min: +m.duration_min || 0, distance_km: +m.distance_km || 0, thumb: null, source: 'Lift Log' });
+      added++;
+    }
+    if (!LOG[d].length) delete LOG[d];
+  }
+  store.set('log', LOG); renderLog();
+  dataMsg(`Imported ${added} workout${added === 1 ? '' : 's'} from Lift Log.` + (skipped ? ` ${skipped} weight session${skipped === 1 ? '' : 's'} skipped.` : '') + (dup ? ` ${dup} already imported.` : ''));
+  return true;
+}
 $('#pasteToggle').onclick = () => { const b = $('#pasteBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; if (b.style.display === 'block') $('#pasteTxt').focus(); };
 $('#pasteGo').onclick = () => { const t = $('#pasteTxt').value.trim(); if (!t) return dataMsg('Paste the backup text first.', true); if (restoreText(t)) { $('#pasteTxt').value = ''; $('#pasteBox').style.display = 'none'; } };
 function restoreText(text) {
