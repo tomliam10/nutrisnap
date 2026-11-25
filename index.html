@@ -98,6 +98,7 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
       <div id="burnMeal" class="mute">Set up your profile to see this.</div>
     </div>
     <button class="btn" id="saveBtn">➕ Add to today's log</button>
+    <button class="btn sec clearScan" style="margin-top:10px">↺ Clear this scan</button>
   </div>
 
   <div id="exResult" style="display:none">
@@ -113,6 +114,7 @@ nav button span{display:block;font-size:22px}nav button.on{color:var(--green)}
       <div class="mute" style="margin-top:8px">Check the number against your device and edit it if it's wrong.</div>
     </div>
     <button class="btn" id="exSave">➕ Add workout to today's log</button>
+    <button class="btn sec clearScan" style="margin-top:10px">↺ Clear this scan</button>
   </div>
 </section>
 
@@ -321,6 +323,7 @@ function clearAll() {
   updateGo(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 $('#clearBtn').onclick = clearAll;
+document.querySelectorAll('.clearScan').forEach((b) => (b.onclick = clearAll));
 $('#note').oninput = updateGo;
 $('#rmPhoto').onclick = () => {
   imgData = null; $('#preview').style.display = 'none'; $('#preview').removeAttribute('src');
